@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/qingw1230/corekv/utils/codec"
@@ -18,6 +19,7 @@ type SkipList struct {
 	rand     *rand.Rand
 	maxLevel int
 	length   int
+	rw       sync.RWMutex
 }
 
 func NewSkipList() *SkipList {
@@ -55,6 +57,9 @@ func newElement(score float64, key, val []byte, level int) *Element {
 }
 
 func (sl *SkipList) Add(data *codec.Entry) error {
+	sl.rw.Lock()
+	defer sl.rw.Unlock()
+
 	score := sl.calcScore(data.Key)
 	max := len(sl.header.levels)
 	prevElem := sl.header
@@ -102,6 +107,9 @@ func (sl *SkipList) Add(data *codec.Entry) error {
 }
 
 func (sl *SkipList) Search(key []byte) *codec.Entry {
+	sl.rw.RLock()
+	defer sl.rw.RUnlock()
+
 	if sl.length == 0 {
 		return nil
 	}
@@ -131,7 +139,7 @@ func (sl *SkipList) Search(key []byte) *codec.Entry {
 	return nil
 }
 
-func (sl *SkipList) Remove(key []byte) error {
+/*func (sl *SkipList) Remove(key []byte) error {
 	score := sl.calcScore(key)
 	max := len(sl.header.levels)
 	prevElem := sl.header
@@ -170,7 +178,7 @@ func (sl *SkipList) Remove(key []byte) error {
 
 	sl.length--
 	return nil
-}
+}*/
 
 func (s *SkipList) Close() error {
 	return nil
@@ -214,7 +222,7 @@ func (s *SkipList) randLevel() int {
 		return 1
 	}
 	for i := 1; i < s.maxLevel; i++ {
-		if s.rand.Intn(100)%2 == 0 {
+		if RandN(100)%2 == 0 {
 			return i
 		}
 	}

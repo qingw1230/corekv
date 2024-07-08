@@ -2,19 +2,13 @@ package utils
 
 import (
 	"fmt"
-	"math/rand"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/qingw1230/corekv/utils/codec"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-var r *rand.Rand
-
-func init() {
-	r = rand.New(rand.NewSource(time.Now().Unix()))
-}
 
 func RandString(len int) string {
 	bytes := make([]byte, len)
@@ -33,8 +27,8 @@ func TestSkipList_compare(t *testing.T) {
 		length:   0,
 	}
 
-	byte1 := []byte("1")
-	byte2 := []byte("2")
+	byte1 := []byte("112345678")
+	byte2 := []byte("212345678")
 
 	byte1Score := sl.calcScore(byte1)
 	byte2Score := sl.calcScore(byte2)
@@ -65,10 +59,6 @@ func TestSkipListBasicCRUD(t *testing.T) {
 	// 获取一个不存在的 entry
 	assert.Nil(t, sl.Search([]byte("noexist")))
 
-	// 删除一个 entry
-	sl.Remove([]byte("Key2"))
-	assert.Nil(t, sl.Search(entry2.Key))
-
 	// 更新一个 entry
 	entry1_new := codec.NewEntry([]byte("Key1"), []byte("Val1+1"))
 	assert.Nil(t, sl.Add(entry1_new))
@@ -79,26 +69,75 @@ func Benchmark_SkipListBasicCRUD(b *testing.B) {
 	sl := NewSkipList()
 	key, val := "", ""
 	maxTime := 1_000_000
-	delTime := 0
 
 	for i := 0; i < maxTime; i++ {
-		key, val = fmt.Sprintf("Key%d", i), fmt.Sprintf("Val%d", i)
+		key, val = RandString(20), RandString(100)
 		entry := codec.NewEntry([]byte(key), []byte(val))
 		e := sl.Add(entry)
 		assert.Equal(b, nil, e)
 		searchVal := sl.Search([]byte(key))
 		assert.Equal(b, []byte(val), searchVal.Value)
-
-		if rand.Intn(maxTime) < maxTime/4 {
-			delTime++
-			e = sl.Remove([]byte(key))
-			assert.Equal(b, nil, e)
-			entry = sl.Search([]byte(key))
-			if entry != nil {
-				fmt.Println(delTime)
-				fmt.Println("key", entry.Key, "value", entry.Value)
-			}
-			assert.Nil(b, entry)
-		}
 	}
+}
+
+func TestConcurrentBasicCRUD(t *testing.T) {
+	const n = 10_000
+	sl := NewSkipList()
+	key := func(i int) []byte {
+		return []byte(fmt.Sprintf("%05d", i))
+	}
+	var wg sync.WaitGroup
+
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			assert.Nil(t, sl.Add(codec.NewEntry(key(i), key(i))))
+		}(i)
+	}
+
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			v := sl.Search(key(i))
+			if v != nil {
+				require.EqualValues(t, key(i), v.Value)
+				return
+			}
+			require.Nil(t, v)
+		}(i)
+	}
+	wg.Wait()
+}
+
+func Benchmark_ConcurrendBasicCRUD(b *testing.B) {
+	const n = 10_000
+	sl := NewSkipList()
+	key := func(i int) []byte {
+		return []byte(fmt.Sprintf("%05d", i))
+	}
+	var wg sync.WaitGroup
+
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			assert.Nil(b, sl.Add(codec.NewEntry(key(i), key(i))))
+		}(i)
+	}
+
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			v := sl.Search(key(i))
+			if v != nil {
+				require.EqualValues(b, key(i), v.Value)
+				return
+			}
+			require.Nil(b, v)
+		}(i)
+	}
+	wg.Wait()
 }

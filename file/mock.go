@@ -8,7 +8,8 @@ import (
 )
 
 type MockFile struct {
-	f *os.File
+	f   *os.File
+	opt *Options
 }
 
 type Options struct {
@@ -19,7 +20,8 @@ type Options struct {
 func OpenMockFile(opt *Options) *MockFile {
 	var err error
 	lf := &MockFile{}
-	lf.f, err = os.Open(fmt.Sprintf("%s/%s", opt.Dir, opt.Name))
+	lf.opt = opt
+	lf.f, err = os.OpenFile(fmt.Sprintf("%s/%s", opt.Dir, opt.Name), os.O_CREATE|os.O_RDWR, 0666)
 	utils.Panic(err)
 	return lf
 }
@@ -37,4 +39,14 @@ func (m *MockFile) Close() error {
 		return err
 	}
 	return nil
+}
+
+func (lf *MockFile) Truncature(n int64) error {
+	return lf.f.Truncate(n)
+}
+
+func (lf *MockFile) ReName(name string) error {
+	err := os.Rename(fmt.Sprintf("%s/%s", lf.opt.Dir, lf.opt.Name), fmt.Sprintf("%s/%s", lf.opt.Dir, name))
+	lf.opt.Name = name
+	return err
 }

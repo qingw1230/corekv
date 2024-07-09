@@ -238,39 +238,31 @@ func (s *SkipList) Size() int64 {
 	return s.size
 }
 
-type SkipListIter struct {
-	header *Element
-	elem   *Element
-	rw     sync.RWMutex
+type SkipListIterator struct {
+	it *Element
+	sl *SkipList
 }
 
-func (s *SkipList) NewSkipListIterator() iterator.Iterator {
-	return &SkipListIter{
-		header: s.header,
-		elem:   s.header.levels[0],
+func (sl *SkipList) NewIterator(opt *iterator.Options) iterator.Iterator {
+	iter := &SkipListIterator{
+		it: sl.header,
+		sl: sl,
 	}
+	return iter
 }
 
-func (iter *SkipListIter) Next() {
-	iter.rw.RLock()
-	defer iter.rw.RUnlock()
-	if iter.elem != nil {
-		iter.elem = iter.elem.levels[0]
-	}
+func (iter *SkipListIterator) Next() {
+	iter.it = iter.it.levels[0]
 }
-
-func (iter *SkipListIter) Valid() bool {
-	return iter.elem != nil
+func (iter *SkipListIterator) Valid() bool {
+	return iter.it != nil
 }
-
-func (iter *SkipListIter) Rewind() {
-	iter.elem = iter.header
+func (iter *SkipListIterator) Rewind() {
+	iter.it = iter.sl.header.levels[0]
 }
-
-func (iter *SkipListIter) Item() iterator.Item {
-	return iter.elem
+func (iter *SkipListIterator) Item() iterator.Item {
+	return iter.it
 }
-
-func (iter *SkipListIter) Close() error {
+func (iter *SkipListIterator) Close() error {
 	return nil
 }

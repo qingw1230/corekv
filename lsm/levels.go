@@ -1,12 +1,17 @@
 package lsm
 
 import (
+	"bytes"
+	"fmt"
+	"sync/atomic"
+
 	"github.com/qingw1230/corekv/file"
 	"github.com/qingw1230/corekv/utils"
 	"github.com/qingw1230/corekv/utils/codec"
 )
 
 type levelManager struct {
+	maxFid   uint32
 	opt      *Options
 	cache    *cache
 	manifest *file.Manifest
@@ -22,13 +27,46 @@ func (lh *levelHandler) close() error {
 	return nil
 }
 
+func (lh *levelHandler) add(sst *file.SSTable) {
+	lh.tables = append(lh.tables, &table{
+		ss:   sst,
+		idxs: sst.Indexs(),
+	})
+}
+
 func (lh *levelHandler) Get(key []byte) (*codec.Entry, error) {
 	if lh.levelNum == 0 {
-		// logic...
+		return lh.searchL0SST(key)
 	} else {
-		// logic...
+		return lh.searchLNSST(key)
 	}
-	return nil, nil
+}
+
+func (lh *levelHandler) searchL0SST(key []byte) (*codec.Entry, error) {
+	for _, table := range lh.tables {
+		if entry, err := table.Serach(key); err == nil {
+			return entry, nil
+		}
+	}
+	return nil, utils.ErrKeyNotFound
+}
+
+func (lh *levelHandler) searchLNSST(key []byte) (*codec.Entry, error) {
+	table := lh.getTable(key)
+	if entry, err := table.Serach(key); err == nil {
+		return entry, nil
+	}
+	return nil, utils.ErrKeyNotFound
+}
+
+func (lh *levelHandler) getTable(key []byte) *table {
+	for i := len(lh.tables) - 1; i >= 0; i-- {
+		if bytes.Compare(key, lh.tables[i].ss.MinKey()) > -1 &&
+			bytes.Compare(key, lh.tables[i].ss.MaxKey()) < 1 {
+			return lh.tables[i]
+		}
+	}
+	return nil
 }
 
 func (lm *levelManager) close() error {
@@ -44,6 +82,23 @@ func (lm *levelManager) close() error {
 		}
 	}
 	return nil
+}
+
+func (lm *levelManager) Get(key []byte) (*codec.Entry, error) {
+	var (
+		entry *codec.Entry
+		err   error
+	)
+	if entry, err = lm.levels[0].Get(key); entry != nil {
+		return entry, err
+	}
+	for level := 1; level < utils.MaxLevelNum; level++ {
+		ld := lm.levels[level]
+		if entry, err = ld.Get(key); entry != nil {
+			return entry, err
+		}
+	}
+	return entry, nil
 }
 
 func newLevelManager(opt *Options) *levelManager {
@@ -64,42 +119,37 @@ func (lm *levelManager) loadCache() {
 }
 
 func (lm *levelManager) loadManifest() {
-	lm.manifest = file.OpenManifest(&file.Options{Name: "manifest", Dir: lm.opt.WorkDir})
+	lm.manifest = file.OpenManifest(&file.Options{Name: "MANIFEST", Dir: lm.opt.WorkDir})
 }
 
 func (lm *levelManager) build() {
 	lm.levels = make([]*levelHandler, utils.MaxLevelNum)
 	tables := lm.manifest.Tables()
+	var maxFid uint32
 	for num := 0; num < utils.MaxLevelNum; num++ {
 		lm.levels[num] = &levelHandler{levelNum: num}
 		lm.levels[num].tables = make([]*table, len(tables[num]))
 		for i := range tables[num] {
-			lm.levels[num].tables[i] = openTable(lm.opt, tables[num][i])
+			ot := openTable(lm, tables[num][i].SSTName)
+			lm.levels[num].tables[i] = ot
+			if ot.fid > maxFid {
+				maxFid = ot.fid
+			}
 		}
 	}
-
+	lm.maxFid = maxFid
 	lm.loadCache()
 }
 
 func (lm *levelManager) flush(immutable *memTable) error {
-	return nil
-}
-
-func (lm *levelManager) Get(key []byte) (*codec.Entry, error) {
-	var (
-		entry *codec.Entry
-		err   error
-	)
-
-	if entry, err = lm.levels[0].Get(key); entry != nil {
-		return entry, err
+	newFid := atomic.AddUint32(&lm.maxFid, 1)
+	sstName := fmt.Sprintf("%05d.sst", newFid)
+	sst := file.OpenSStable(&file.Options{Name: sstName, Dir: lm.opt.WorkDir})
+	if err := sst.SaveSkipListToSSTable(immutable.sl); err != nil {
+		return err
 	}
-
-	for level := 1; level < utils.MaxLevelNum; level++ {
-		ld := lm.levels[level]
-		if entry, err = ld.Get(key); entry != nil {
-			return entry, err
-		}
-	}
-	return entry, nil
+	lm.levels[0].add(sst)
+	return lm.manifest.AppendSST(0, &file.Cell{
+		SSTName: sstName,
+	})
 }

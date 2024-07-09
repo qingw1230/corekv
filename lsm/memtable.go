@@ -40,7 +40,10 @@ func (m *memTable) Get(key []byte) (*codec.Entry, error) {
 }
 
 func recovery(opt *Options) (*memTable, []*memTable) {
-	fileOpt := &file.Options{}
+	fileOpt := &file.Options{
+		Dir:  opt.WorkDir,
+		Name: "00001.mem",
+	}
 	return &memTable{wal: file.OpenWalFile(fileOpt), sl: utils.NewSkipList()}, []*memTable{}
 }
 

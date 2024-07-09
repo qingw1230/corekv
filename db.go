@@ -30,7 +30,10 @@ func Open(opt *Options) *DB {
 	db := &DB{
 		opt: opt,
 	}
-	db.lsm = lsm.NewLSM(&lsm.Options{})
+	db.lsm = lsm.NewLSM(&lsm.Options{
+		WorkDir:      opt.WorkDir,
+		MemTableSize: opt.MemTableSize,
+	})
 	db.vlog = vlog.NewVLog(&vlog.Options{})
 	db.stats = newStats(opt)
 	go db.lsm.StartMerge()

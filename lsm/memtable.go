@@ -1,6 +1,9 @@
 package lsm
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/qingw1230/corekv/file"
 	"github.com/qingw1230/corekv/utils"
 	"github.com/qingw1230/corekv/utils/codec"
@@ -41,8 +44,10 @@ func (m *memTable) Get(key []byte) (*codec.Entry, error) {
 
 func recovery(opt *Options) (*memTable, []*memTable) {
 	fileOpt := &file.Options{
-		Dir:  opt.WorkDir,
-		Name: "00001.mem",
+		Dir:      opt.WorkDir,
+		FileName: fmt.Sprintf("%s/%s", opt.WorkDir, "00001.mem"),
+		Flag:     os.O_CREATE | os.O_RDWR,
+		MaxSz:    int(opt.SSTableMaxSz),
 	}
 	return &memTable{wal: file.OpenWalFile(fileOpt), sl: utils.NewSkipList()}, []*memTable{}
 }

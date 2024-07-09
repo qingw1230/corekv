@@ -1,6 +1,8 @@
 package lsm
 
 import (
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/qingw1230/corekv/file"
@@ -22,13 +24,16 @@ func TestLevels(t *testing.T) {
 	}
 
 	opt := &Options{
-		WorkDir: "../work_test",
+		WorkDir:      "../work_test",
+		SSTableMaxSz: 1 << 30,
+		MemTableSize: 1024,
 	}
 	levelLive := func() {
 		levels := newLevelManager(opt)
 		defer func() { _ = levels.close() }()
+		fileName := fmt.Sprintf("%s/%s", opt.WorkDir, "00001.mem")
 		imm := &memTable{
-			wal: file.OpenWalFile(&file.Options{Name: "00001.mem", Dir: opt.WorkDir}),
+			wal: file.OpenWalFile(&file.Options{FileName: fileName, Dir: opt.WorkDir, Flag: os.O_CREATE | os.O_RDWR, MaxSz: int(opt.SSTableMaxSz)}),
 			sl:  utils.NewSkipList(),
 		}
 		for _, entry := range entrys {

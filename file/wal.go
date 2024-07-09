@@ -1,22 +1,33 @@
 package file
 
-import "github.com/qingw1230/corekv/utils/codec"
+import (
+	"os"
+	"sync"
+
+	"github.com/qingw1230/corekv/utils"
+	"github.com/qingw1230/corekv/utils/codec"
+)
 
 // WalFile 预写日志文件结构
 type WalFile struct {
-	f *MockFile
+	rw *sync.RWMutex
+	f  *MmapFile
 }
 
 func OpenWalFile(opt *Options) *WalFile {
-	return &WalFile{
-		f: OpenMockFile(opt),
-	}
+	omf, err := OpenMmapFile(opt.FileName, os.O_CREATE|os.O_RDWR, opt.MaxSz)
+	utils.Err(err)
+	return &WalFile{f: omf, rw: &sync.RWMutex{}}
 }
 
-func (w *WalFile) Write(entry *codec.Entry) error {
+func (wf *WalFile) Write(entry *codec.Entry) error {
 	walData := codec.WalCodec(entry)
-	_, err := w.f.Write(walData)
-	return err
+	wf.rw.Lock()
+	fileData, _, err := wf.f.AllocateSlice(len(walData), 0)
+	utils.Panic(err)
+	copy(fileData, walData)
+	wf.rw.Unlock()
+	return nil
 }
 
 func (w *WalFile) Close() error {

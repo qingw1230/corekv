@@ -1,0 +1,4 @@
+package codec
+
+func Index() {
+}

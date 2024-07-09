@@ -3,9 +3,9 @@ package file
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"io/ioutil"
+	"os"
 	"strings"
+	"sync"
 
 	"github.com/qingw1230/corekv/iterator"
 	"github.com/qingw1230/corekv/utils"
@@ -13,24 +13,29 @@ import (
 
 // SSTable SST 文件结构
 type SSTable struct {
-	f      *MockFile
+	rw     *sync.RWMutex
+	f      *MmapFile
 	maxKey []byte
 	minKey []byte
 	indexs []byte
-	fid    string
+	fid    uint32
 }
 
 func OpenSStable(opt *Options) *SSTable {
-	return &SSTable{f: OpenMockFile(opt), fid: utils.FID(opt.Name)}
+	omf, err := OpenMmapFile(opt.FileName, os.O_CREATE|os.O_RDWR, opt.MaxSz)
+	utils.Err(err)
+	return &SSTable{f: omf, fid: opt.FID, rw: &sync.RWMutex{}}
 }
 
 func (ss *SSTable) Indexs() []byte {
 	if len(ss.indexs) == 0 {
-		bv, _ := ioutil.ReadAll(ss.f)
+		ss.rw.RLock()
+		bv := ss.f.Slice(0)
+		ss.rw.RUnlock()
 		m := make(map[string]interface{}, 0)
 		json.Unmarshal(bv, &m)
 		if idx, ok := m["idx"]; !ok {
-			panic("sst idx is nil")
+			return []byte{}
 		} else {
 			dataStr, _ := idx.(string)
 			ss.indexs = []byte(dataStr)
@@ -50,7 +55,7 @@ func (ss *SSTable) MinKey() []byte {
 	return ss.minKey
 }
 
-func (ss *SSTable) FID() string {
+func (ss *SSTable) FID() uint32 {
 	return ss.fid
 }
 
@@ -68,22 +73,22 @@ func (ss *SSTable) SaveSkipListToSSTable(sl *utils.SkipList) error {
 	ssData["idx"] = strings.Join(indexs, ",")
 	ssData["data"] = strings.Join(datas, ",")
 	bData, err := json.Marshal(ssData)
-	if err != nil {
-		return err
-	}
-	if _, err := ss.f.Write(bData); err != nil {
-		return err
-	}
+	utils.Err(err)
+	ss.rw.Lock()
+	fileData, _, err := ss.f.AllocateSlice(len(bData), 0)
+	utils.Panic(err)
+	copy(fileData, bData)
+	ss.rw.Unlock()
 	ss.indexs = []byte(ssData["idx"])
 	return nil
 }
 
 func (ss *SSTable) LoadData() (blocks [][]byte, offsets []int) {
-	ss.f.f.Seek(0, io.SeekStart)
-	bv, err := ioutil.ReadAll(ss.f)
-	utils.Panic(err)
+	ss.rw.RLock()
+	fileData := ss.f.Slice(0)
+	ss.rw.RUnlock()
 	m := make(map[string]interface{}, 0)
-	json.Unmarshal(bv, &m)
+	json.Unmarshal(fileData, &m)
 	if data, ok := m["data"]; !ok {
 		panic("sst data is nil")
 	} else {

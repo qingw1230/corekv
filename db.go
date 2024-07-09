@@ -33,6 +33,7 @@ func Open(opt *Options) *DB {
 	db.lsm = lsm.NewLSM(&lsm.Options{
 		WorkDir:      opt.WorkDir,
 		MemTableSize: opt.MemTableSize,
+		SSTableMaxSz: opt.SSTableMaxSz,
 	})
 	db.vlog = vlog.NewVLog(&vlog.Options{})
 	db.stats = newStats(opt)

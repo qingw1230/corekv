@@ -6,6 +6,7 @@ type Options struct {
 	ValueThreshold int64
 	WorkDir        string
 	MemTableSize   int64
+	SSTableMaxSz   int64
 }
 
 func NewDefaultOptions() *Options {
@@ -13,6 +14,7 @@ func NewDefaultOptions() *Options {
 		ValueThreshold: utils.DefaultValueThreshold,
 		WorkDir:        "./work_test",
 		MemTableSize:   1024,
+		SSTableMaxSz:   1 << 30,
 	}
 	return opt
 }

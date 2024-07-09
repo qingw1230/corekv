@@ -2,6 +2,7 @@ package lsm
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -18,20 +19,18 @@ type table struct {
 }
 
 func openTable(lm *levelManager, tableName string) *table {
-	t := &table{ss: file.OpenSStable(&file.Options{Name: tableName, Dir: lm.opt.WorkDir})}
+	t := &table{
+		ss: file.OpenSStable(
+			&file.Options{
+				FileName: tableName,
+				Dir:      lm.opt.WorkDir,
+				Flag:     os.O_CREATE | os.O_RDWR,
+				MaxSz:    int(lm.opt.SSTableMaxSz),
+			}),
+	}
 	t.idxs = t.ss.Indexs()
 	t.lm = lm
-	j := 0
-	for i := range tableName {
-		if tableName[i] != '0'-0 {
-			break
-		}
-		j++
-	}
-	fidStr := strings.Split(tableName[j:], ".")[0]
-	fidU64, err := strconv.ParseUint(fidStr, 10, 32)
-	utils.Panic(err)
-	t.fid = uint32(fidU64)
+	t.fid = utils.FID(tableName)
 	return t
 }
 

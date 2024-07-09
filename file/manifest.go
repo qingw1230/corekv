@@ -2,13 +2,13 @@ package file
 
 import (
 	"encoding/json"
-	"fmt"
-	"io/ioutil"
+	"sync"
 
 	"github.com/qingw1230/corekv/utils"
 )
 
 type Manifest struct {
+	rw  *sync.RWMutex
 	opt *Options
 	f   CoreFile
 	// tables l0-l7 各层的 SST 文件名
@@ -34,12 +34,13 @@ func (m *Manifest) Tables() [][]*Cell {
 func OpenManifest(opt *Options) *Manifest {
 	mf := &Manifest{
 		opt:    opt,
-		f:      OpenMockFile(opt),
 		tables: make([][]*Cell, utils.MaxLevelNum),
+		rw:     &sync.RWMutex{},
 	}
-
-	data, err := ioutil.ReadAll(mf.f)
+	mmapFile, err := OpenMmapFile(opt.FileName, opt.Flag, opt.MaxSz)
 	utils.Panic(err)
+	mf.f = mmapFile
+	data := mf.f.Slice(0)
 	if len(data) == 0 {
 		return mf
 	}
@@ -56,10 +57,6 @@ func OpenManifest(opt *Options) *Manifest {
 
 func (mf *Manifest) AppendSST(levelNum int, cell *Cell) (err error) {
 	mf.tables[levelNum] = append(mf.tables[levelNum], cell)
-	err = mf.f.Truncature(0)
-	if err != nil {
-		return err
-	}
 	res := make([][]string, len(mf.tables))
 	for i, cells := range mf.tables {
 		res[i] = make([]string, 0)
@@ -71,6 +68,10 @@ func (mf *Manifest) AppendSST(levelNum int, cell *Cell) (err error) {
 	if err != nil {
 		return err
 	}
-	ioutil.WriteFile(fmt.Sprintf("%s/%s", mf.opt.Dir, mf.opt.Name), data, 0666)
+	mf.rw.Lock()
+	defer mf.rw.Unlock()
+	fileData, _, err := mf.f.AllocateSlice(len(data), 0)
+	utils.Panic(err)
+	copy(fileData, data)
 	return err
 }

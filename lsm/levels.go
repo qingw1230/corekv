@@ -3,6 +3,7 @@ package lsm
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"sync/atomic"
 
 	"github.com/qingw1230/corekv/file"
@@ -27,11 +28,8 @@ func (lh *levelHandler) close() error {
 	return nil
 }
 
-func (lh *levelHandler) add(sst *file.SSTable) {
-	lh.tables = append(lh.tables, &table{
-		ss:   sst,
-		idxs: sst.Indexs(),
-	})
+func (lh *levelHandler) add(t *table) {
+	lh.tables = append(lh.tables, t)
 }
 
 func (lh *levelHandler) Get(key []byte) (*codec.Entry, error) {
@@ -44,6 +42,9 @@ func (lh *levelHandler) Get(key []byte) (*codec.Entry, error) {
 
 func (lh *levelHandler) searchL0SST(key []byte) (*codec.Entry, error) {
 	for _, table := range lh.tables {
+		if table == nil {
+			return nil, utils.ErrKeyNotFound
+		}
 		if entry, err := table.Serach(key); err == nil {
 			return entry, nil
 		}
@@ -98,7 +99,7 @@ func (lm *levelManager) Get(key []byte) (*codec.Entry, error) {
 			return entry, err
 		}
 	}
-	return entry, nil
+	return entry, utils.ErrKeyNotFound
 }
 
 func newLevelManager(opt *Options) *levelManager {
@@ -119,7 +120,8 @@ func (lm *levelManager) loadCache() {
 }
 
 func (lm *levelManager) loadManifest() {
-	lm.manifest = file.OpenManifest(&file.Options{Name: "MANIFEST", Dir: lm.opt.WorkDir})
+	fileName := fmt.Sprintf("%s/%s", lm.opt.WorkDir, utils.MANIFEST)
+	lm.manifest = file.OpenManifest(&file.Options{FileName: fileName, Flag: os.O_CREATE | os.O_RDWR, MaxSz: 1 << 20})
 }
 
 func (lm *levelManager) build() {
@@ -143,12 +145,12 @@ func (lm *levelManager) build() {
 
 func (lm *levelManager) flush(immutable *memTable) error {
 	newFid := atomic.AddUint32(&lm.maxFid, 1)
-	sstName := fmt.Sprintf("%05d.sst", newFid)
-	sst := file.OpenSStable(&file.Options{Name: sstName, Dir: lm.opt.WorkDir})
-	if err := sst.SaveSkipListToSSTable(immutable.sl); err != nil {
+	sstName := fmt.Sprintf("%s/%05d.sst", lm.opt.WorkDir, newFid)
+	table := openTable(lm, sstName)
+	if err := table.ss.SaveSkipListToSSTable(immutable.sl); err != nil {
 		return err
 	}
-	lm.levels[0].add(sst)
+	lm.levels[0].add(table)
 	return lm.manifest.AppendSST(0, &file.Cell{
 		SSTName: sstName,
 	})

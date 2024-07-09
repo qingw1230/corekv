@@ -16,6 +16,7 @@ type LSM struct {
 type Options struct {
 	WorkDir      string
 	MemTableSize int64
+	SSTableMaxSz int64
 }
 
 func (lsm *LSM) Close() error {

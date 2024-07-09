@@ -6,33 +6,34 @@ import (
 	"sync"
 	"time"
 
+	"github.com/qingw1230/corekv/iterator"
 	"github.com/qingw1230/corekv/utils/codec"
 )
 
 const (
-	DefaultMaxLevel = 48
+	defaultMaxLevel = 48
 )
 
 type SkipList struct {
 	header *Element
-	// rand 用来生成新节点的层高
-	rand     *rand.Rand
+
+	rand     *rand.Rand // 用来生成新节点的层高
 	maxLevel int
-	length   int
+	length   int // 跳表中节点数据
 	rw       sync.RWMutex
+	size     int64 // 跳表中 kv 的总大小
 }
 
 func NewSkipList() *SkipList {
 	source := rand.NewSource(time.Now().UnixNano())
 	return &SkipList{
 		header: &Element{
-			levels: make([]*Element, DefaultMaxLevel),
-			Key:    nil,
-			Val:    nil,
+			levels: make([]*Element, defaultMaxLevel),
+			entry:  nil,
 			score:  0,
 		},
 		rand:     rand.New(source),
-		maxLevel: DefaultMaxLevel,
+		maxLevel: defaultMaxLevel,
 		length:   0,
 	}
 }
@@ -41,19 +42,21 @@ func NewSkipList() *SkipList {
 type Element struct {
 	// levels 节点各层的 next 指针
 	levels []*Element
-	Key    []byte
-	Val    []byte
+	entry  *codec.Entry
 	// score 由 Key 前 8 位计算出的分值，用来加速比较
 	score float64
 }
 
-func newElement(score float64, key, val []byte, level int) *Element {
+func newElement(score float64, entry *codec.Entry, level int) *Element {
 	return &Element{
 		levels: make([]*Element, level),
-		Key:    key,
-		Val:    val,
+		entry:  entry,
 		score:  score,
 	}
+}
+
+func (e *Element) Entry() *codec.Entry {
+	return e.entry
 }
 
 func (sl *SkipList) Add(data *codec.Entry) error {
@@ -64,7 +67,7 @@ func (sl *SkipList) Add(data *codec.Entry) error {
 	max := len(sl.header.levels)
 	prevElem := sl.header
 	// prevElems 记录要插入节点在各层的前一节点
-	var prevElems [DefaultMaxLevel]*Element
+	var prevElems [defaultMaxLevel]*Element
 
 	// 从跳表最高层遍历到最低层寻找插入位置
 	for i := max - 1; i >= 0; {
@@ -73,7 +76,8 @@ func (sl *SkipList) Add(data *codec.Entry) error {
 			if comp := sl.compare(score, data.Key, next); comp <= 0 {
 				// 下一节点与要插入的相同，覆盖原节点
 				if comp == 0 {
-					next.Val = data.Value
+					sl.size += data.Size() - next.Entry().Size()
+					next.entry = data
 					return nil
 				}
 				// 要插入的节点比 next 节点更小，继续看下一层
@@ -92,7 +96,7 @@ func (sl *SkipList) Add(data *codec.Entry) error {
 	}
 
 	level := sl.randLevel()
-	elem := newElement(score, data.Key, data.Value, level)
+	elem := newElement(score, data, level)
 
 	// 将新节点插入跳表各层
 	for i := 0; i < level; i++ {
@@ -102,6 +106,7 @@ func (sl *SkipList) Add(data *codec.Entry) error {
 		prevElems[i].levels[i] = elem
 	}
 
+	sl.size += data.Size()
 	sl.length++
 	return nil
 }
@@ -122,7 +127,7 @@ func (sl *SkipList) Search(key []byte) *codec.Entry {
 		for next := prevElem.levels[i]; next != nil; next = prevElem.levels[i] {
 			if comp := sl.compare(score, key, next); comp <= 0 {
 				if comp == 0 {
-					return codec.NewEntry(next.Key, next.Val)
+					return next.Entry()
 				}
 				// 去下一层找
 				break
@@ -206,7 +211,7 @@ func (s *SkipList) calcScore(key []byte) float64 {
 func (s *SkipList) compare(score float64, key []byte, next *Element) int {
 	// 只能说明前 8 位相等，还需要再比较后面
 	if score == next.score {
-		return bytes.Compare(key, next.Key)
+		return bytes.Compare(key, next.Entry().Key)
 	}
 
 	if score < next.score {
@@ -227,4 +232,45 @@ func (s *SkipList) randLevel() int {
 		}
 	}
 	return s.maxLevel
+}
+
+func (s *SkipList) Size() int64 {
+	return s.size
+}
+
+type SkipListIter struct {
+	header *Element
+	elem   *Element
+	rw     sync.RWMutex
+}
+
+func (s *SkipList) NewSkipListIterator() iterator.Iterator {
+	return &SkipListIter{
+		header: s.header,
+		elem:   s.header.levels[0],
+	}
+}
+
+func (iter *SkipListIter) Next() {
+	iter.rw.RLock()
+	defer iter.rw.RUnlock()
+	if iter.elem != nil {
+		iter.elem = iter.elem.levels[0]
+	}
+}
+
+func (iter *SkipListIter) Valid() bool {
+	return iter.elem != nil
+}
+
+func (iter *SkipListIter) Rewind() {
+	iter.elem = iter.header
+}
+
+func (iter *SkipListIter) Item() iterator.Item {
+	return iter.elem
+}
+
+func (iter *SkipListIter) Close() error {
+	return nil
 }

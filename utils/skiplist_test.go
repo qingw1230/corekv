@@ -29,19 +29,19 @@ func TestSkipList_compare(t *testing.T) {
 
 	byte1 := []byte("112345678")
 	byte2 := []byte("212345678")
+	entry1 := codec.NewEntry(byte1, byte1)
 
 	byte1Score := sl.calcScore(byte1)
 	byte2Score := sl.calcScore(byte2)
 
 	e := &Element{
 		levels: nil,
-		Key:    byte2,
-		Val:    nil,
+		entry:  entry1,
 		score:  byte2Score,
 	}
 
 	assert.Equal(t, -1, sl.compare(byte1Score, byte1, e))
-	assert.Equal(t, 0, sl.compare(byte2Score, byte2, e))
+	assert.Equal(t, 0, sl.compare(byte2Score, byte1, e))
 }
 
 func TestSkipListBasicCRUD(t *testing.T) {
@@ -68,7 +68,7 @@ func TestSkipListBasicCRUD(t *testing.T) {
 func Benchmark_SkipListBasicCRUD(b *testing.B) {
 	sl := NewSkipList()
 	key, val := "", ""
-	maxTime := 1_000_000
+	maxTime := 1000000
 
 	for i := 0; i < maxTime; i++ {
 		key, val = RandString(20), RandString(100)
@@ -81,23 +81,23 @@ func Benchmark_SkipListBasicCRUD(b *testing.B) {
 }
 
 func TestConcurrentBasicCRUD(t *testing.T) {
-	const n = 10_000
+	const n = 10000
 	sl := NewSkipList()
 	key := func(i int) []byte {
 		return []byte(fmt.Sprintf("%05d", i))
 	}
 	var wg sync.WaitGroup
 
-	wg.Add(n)
 	for i := 0; i < n; i++ {
+		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			assert.Nil(t, sl.Add(codec.NewEntry(key(i), key(i))))
 		}(i)
 	}
 
-	wg.Add(n)
 	for i := 0; i < n; i++ {
+		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			v := sl.Search(key(i))
@@ -111,24 +111,24 @@ func TestConcurrentBasicCRUD(t *testing.T) {
 	wg.Wait()
 }
 
-func Benchmark_ConcurrendBasicCRUD(b *testing.B) {
-	const n = 10_000
+func Benchmark_ConcurrentBasicCRUD(b *testing.B) {
+	const n = 10000
 	sl := NewSkipList()
 	key := func(i int) []byte {
 		return []byte(fmt.Sprintf("%05d", i))
 	}
 	var wg sync.WaitGroup
 
-	wg.Add(n)
 	for i := 0; i < n; i++ {
+		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			assert.Nil(b, sl.Add(codec.NewEntry(key(i), key(i))))
 		}(i)
 	}
 
-	wg.Add(n)
 	for i := 0; i < n; i++ {
+		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			v := sl.Search(key(i))

@@ -14,7 +14,7 @@ import (
 type table struct {
 	ss   *file.SSTable
 	lm   *levelManager
-	fid  uint32
+	fid  uint64
 	idxs []byte
 }
 

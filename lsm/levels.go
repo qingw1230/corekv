@@ -2,8 +2,8 @@ package lsm
 
 import (
 	"bytes"
-	"fmt"
-	"os"
+	"sort"
+	"sync"
 	"sync/atomic"
 
 	"github.com/qingw1230/corekv/file"
@@ -12,14 +12,15 @@ import (
 )
 
 type levelManager struct {
-	maxFid   uint32
-	opt      *Options
-	cache    *cache
-	manifest *file.Manifest
-	levels   []*levelHandler
+	maxFid       uint64
+	opt          *Options
+	cache        *cache
+	manifestFile *file.ManifestFile
+	levels       []*levelHandler
 }
 
 type levelHandler struct {
+	sync.RWMutex
 	levelNum int
 	tables   []*table
 }
@@ -37,6 +38,20 @@ func (lh *levelHandler) Get(key []byte) (*codec.Entry, error) {
 		return lh.searchL0SST(key)
 	} else {
 		return lh.searchLNSST(key)
+	}
+}
+
+func (lh *levelHandler) Sort() {
+	lh.Lock()
+	defer lh.Unlock()
+	if lh.levelNum == 0 {
+		sort.Slice(lh.tables, func(i, j int) bool {
+			return lh.tables[i].fid < lh.tables[j].fid
+		})
+	} else {
+		sort.Slice(lh.tables, func(i, j int) bool {
+			return utils.CompareKeys(lh.tables[i].ss.MinKey(), lh.tables[j].ss.MinKey()) < 0
+		})
 	}
 }
 
@@ -74,7 +89,7 @@ func (lm *levelManager) close() error {
 	if err := lm.cache.close(); err != nil {
 		return err
 	}
-	if err := lm.manifest.Close(); err != nil {
+	if err := lm.manifestFile.Close(); err != nil {
 		return err
 	}
 	for i := range lm.levels {
@@ -105,7 +120,9 @@ func (lm *levelManager) Get(key []byte) (*codec.Entry, error) {
 func newLevelManager(opt *Options) *levelManager {
 	lm := &levelManager{}
 	lm.opt = opt
-	lm.loadManifest()
+	if err := lm.loadManifest(); err != nil {
+		panic(err)
+	}
 	lm.build()
 	return lm
 }
@@ -119,39 +136,51 @@ func (lm *levelManager) loadCache() {
 	}
 }
 
-func (lm *levelManager) loadManifest() {
-	fileName := fmt.Sprintf("%s/%s", lm.opt.WorkDir, utils.MANIFEST)
-	lm.manifest = file.OpenManifest(&file.Options{FileName: fileName, Flag: os.O_CREATE | os.O_RDWR, MaxSz: 1 << 20})
+func (lm *levelManager) loadManifest() (err error) {
+	lm.manifestFile, err = file.OpenManifestFile(&file.Options{Dir: lm.opt.WorkDir})
+	return err
 }
 
-func (lm *levelManager) build() {
-	lm.levels = make([]*levelHandler, utils.MaxLevelNum)
-	tables := lm.manifest.Tables()
-	var maxFid uint32
-	for num := 0; num < utils.MaxLevelNum; num++ {
-		lm.levels[num] = &levelHandler{levelNum: num}
-		lm.levels[num].tables = make([]*table, len(tables[num]))
-		for i := range tables[num] {
-			ot := openTable(lm, tables[num][i].SSTName)
-			lm.levels[num].tables[i] = ot
-			if ot.fid > maxFid {
-				maxFid = ot.fid
-			}
+func (lm *levelManager) build() error {
+	lm.levels = make([]*levelHandler, 0, utils.MaxLevelNum)
+	for i := 0; i < utils.MaxLevelNum; i++ {
+		lm.levels = append(lm.levels, &levelHandler{
+			levelNum: i,
+			tables:   make([]*table, 0),
+		})
+	}
+
+	manifest := lm.manifestFile.GetManifest()
+	if err := lm.manifestFile.RevertToManifest(utils.LoadIDMap(lm.opt.WorkDir)); err != nil {
+		return err
+	}
+	var maxFid uint64
+	for fID, tableInfo := range manifest.Tables {
+		fileName := utils.FileNameSSTable(lm.opt.WorkDir, fID)
+		if fID > maxFid {
+			maxFid = fID
 		}
+		t := openTable(lm, fileName)
+		lm.levels[tableInfo.Level].tables = append(lm.levels[tableInfo.Level].tables, t)
+	}
+	for i := 0; i < utils.MaxLevelNum; i++ {
+		lm.levels[i].Sort()
 	}
 	lm.maxFid = maxFid
 	lm.loadCache()
+	return nil
 }
 
 func (lm *levelManager) flush(immutable *memTable) error {
-	newFid := atomic.AddUint32(&lm.maxFid, 1)
-	sstName := fmt.Sprintf("%s/%05d.sst", lm.opt.WorkDir, newFid)
+	nextID := atomic.AddUint64(&lm.maxFid, 1)
+	sstName := utils.FileNameSSTable(lm.opt.WorkDir, nextID)
 	table := openTable(lm, sstName)
 	if err := table.ss.SaveSkipListToSSTable(immutable.sl); err != nil {
 		return err
 	}
 	lm.levels[0].add(table)
-	return lm.manifest.AppendSST(0, &file.Cell{
-		SSTName: sstName,
+	return lm.manifestFile.AddTableMeta(0, &file.TableMeta{
+		ID:       nextID,
+		Checksum: []byte{'m', 'o', 'c', 'k'},
 	})
 }

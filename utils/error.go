@@ -17,9 +17,15 @@ var (
 
 var (
 	// ErrKeyNotFound is returned when key isn't found on a txn.Get.
-	ErrKeyNotFound = errors.New("Key not found")
+	ErrKeyNotFound = errors.New("key not found")
 	// ErrEmptyKey is returned if an empty key is passed on an update function.
-	ErrEmptyKey = errors.New("Key cannot be empty")
+	ErrEmptyKey = errors.New("key cannot be empty")
+	// ErrReWriteFailure rewrite failure
+	ErrReWriteFailure = errors.New("rewrite failure")
+	// ErrBadMagic bad magic
+	ErrBadMagic = errors.New("bad magic")
+	// ErrBadChecksum bad check sum
+	ErrBadChecksum = errors.New("bad check sum")
 )
 
 // Panic err 不为 nil 则触发 panic
@@ -29,6 +35,7 @@ func Panic(err error) {
 	}
 }
 
+// Err 出错时打印调用栈信息
 func Err(err error) error {
 	if err != nil {
 		fmt.Printf("%s %s", location(2, true), err)
@@ -44,11 +51,16 @@ func location(deep int, fullPath bool) string {
 	}
 
 	if fullPath {
-		if strings.HasPrefix(file, gopath) {
-			file = file[len(gopath):]
-		}
+		file = strings.TrimPrefix(file, gopath)
 	} else {
 		file = filepath.Base(file)
 	}
 	return file + ":" + strconv.Itoa(line)
+}
+
+// CondPanic 根据 condition 和 err 决定是否触发 panic
+func CondPanic(condition bool, err error) {
+	if condition {
+		Panic(err)
+	}
 }

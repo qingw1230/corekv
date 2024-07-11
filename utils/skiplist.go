@@ -266,3 +266,5 @@ func (iter *SkipListIterator) Item() iterator.Item {
 func (iter *SkipListIterator) Close() error {
 	return nil
 }
+func (iter *SkipListIterator) Seek(key []byte) {
+}

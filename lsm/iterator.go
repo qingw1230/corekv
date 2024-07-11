@@ -49,6 +49,9 @@ func (iter *Iterator) Close() error {
 	return nil
 }
 
+func (iter *Iterator) Seek(key []byte) {
+}
+
 type memIterator struct {
 	innerIter iterator.Iterator
 }
@@ -84,6 +87,9 @@ type levelIterator struct {
 	iters []*Iterator
 }
 
+func (iter *memIterator) Seek(key []byte) {
+}
+
 func (lm *levelManager) NewIterator(options *iterator.Options) iterator.Iterator {
 	return &levelIterator{}
 }
@@ -105,4 +111,7 @@ func (iter *levelIterator) Item() iterator.Item {
 
 func (iter *levelIterator) Close() error {
 	return nil
+}
+
+func (iter *levelIterator) Seek(key []byte) {
 }

@@ -7,6 +7,7 @@ type Iterator interface {
 	Valid() bool
 	Rewind()
 	Item() Item
+	Seek(key []byte)
 	Close() error
 }
 

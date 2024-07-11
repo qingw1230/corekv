@@ -19,17 +19,32 @@ message KVList {
 }
 
 message ManifestChangeSet {
-    // A set of changes that are applied atomically.
-    repeated ManifestChange changes = 1;
+  // A set of changes that are applied atomically.
+  repeated ManifestChange changes = 1;
 }
 
 message ManifestChange {
-    uint64 Id = 1;
-    enum Operation {
-        CREATE = 0;
-        DELETE = 1;
-    }
-    Operation Op   = 2;
-    uint32 Level   = 3; // 仅用于 CREATE
-    bytes Checksum = 4; // 仅用于 CREATE
+  uint64 Id = 1;
+  enum Operation {
+    CREATE = 0;
+    DELETE = 1;
+  }
+  Operation Op   = 2;
+  uint32 Level   = 3; // 仅用于 CREATE
+  bytes Checksum = 4; // 仅用于 CREATE
+}
+
+// TableIndex sst 文件 block 的 index
+message TableIndex {
+  repeated BlockOffset offsets = 1;
+  bytes bloomFilter = 2;
+  uint64 maxVersion = 3;
+  uint32 keyCount = 4;
+}
+
+// BlockOffset sst 文件的 block
+message BlockOffset {
+  bytes key = 1;      // 该 block 首地址的 key
+  uint32 offset = 2;  // 该 block 首地址的偏移
+  uint32 len = 3;     // 该 block 的长度
 }

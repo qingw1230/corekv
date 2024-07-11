@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"fmt"
+	"hash/crc32"
 	"io/ioutil"
 	"os"
 	"path"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/qingw1230/corekv/utils/codec"
 )
 
 // FID 根据 sst 文件名（00001.sst）获取其 id，不符时返回 0
@@ -71,9 +73,24 @@ func LoadIDMap(dir string) map[uint64]struct{} {
 
 // CompareKeys 比较 key 大小，必须确保 key 长度大于 8 位
 func CompareKeys(key1, key2 []byte) int {
-	CondPanic(len(key1) < 8 && len(key2) < 8, fmt.Errorf("%s & %s < 8", key1, key2))
-	if cmp := bytes.Compare(key1[:len(key1)-8], key2[:len(key2)-8]); cmp != 0 {
+	CondPanic(len(key1) < 8 || len(key2) < 8, fmt.Errorf("%s,%s < 8", key1, key2))
+	if cmp := bytes.Compare(key1[:8], key2[:8]); cmp != 0 {
 		return cmp
 	}
-	return bytes.Compare(key1[len(key1)-8:], key2[len(key2)-8:])
+	return bytes.Compare(key1[8:], key2[8:])
+}
+
+// VerifyChecksum 验证 data 的校验和是否与 expected 相同
+func VerifyChecksum(data []byte, expected []byte) error {
+	actual := uint64(crc32.Checksum(data, CastagnoliCrcTable))
+	expectedU64 := codec.BytesToU64(expected)
+	if actual != expectedU64 {
+		return errors.Wrapf(ErrChecksumMismatch, "actual: %d, expected: %d", actual, expectedU64)
+	}
+	return nil
+}
+
+// CalculateChecksum 计算 data 的校验和
+func CalculateChecksum(data []byte) uint64 {
+	return uint64(crc32.Checksum(data, CastagnoliCrcTable))
 }

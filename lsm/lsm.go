@@ -14,9 +14,11 @@ type LSM struct {
 }
 
 type Options struct {
-	WorkDir      string
-	MemTableSize int64
-	SSTableMaxSz int64
+	WorkDir            string
+	MemTableSize       int64
+	SSTableMaxSz       int64
+	BlockSize          int // sst 文件中每个块的大小
+	BloomFalsePositive float64
 }
 
 func (lsm *LSM) Close() error {

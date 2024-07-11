@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/qingw1230/corekv/file"
+	"github.com/qingw1230/corekv/iterator"
 	"github.com/qingw1230/corekv/utils"
 	"github.com/qingw1230/corekv/utils/codec"
 )
@@ -50,17 +51,18 @@ func (lh *levelHandler) Sort() {
 		})
 	} else {
 		sort.Slice(lh.tables, func(i, j int) bool {
-			return utils.CompareKeys(lh.tables[i].ss.MinKey(), lh.tables[j].ss.MinKey()) < 0
+			return utils.CompareKeys(lh.tables[i].sst.MinKey(), lh.tables[j].sst.MinKey()) < 0
 		})
 	}
 }
 
 func (lh *levelHandler) searchL0SST(key []byte) (*codec.Entry, error) {
+	var version uint64
 	for _, table := range lh.tables {
 		if table == nil {
 			return nil, utils.ErrKeyNotFound
 		}
-		if entry, err := table.Serach(key); err == nil {
+		if entry, err := table.Serach(key, &version); err == nil {
 			return entry, nil
 		}
 	}
@@ -69,7 +71,8 @@ func (lh *levelHandler) searchL0SST(key []byte) (*codec.Entry, error) {
 
 func (lh *levelHandler) searchLNSST(key []byte) (*codec.Entry, error) {
 	table := lh.getTable(key)
-	if entry, err := table.Serach(key); err == nil {
+	var version uint64
+	if entry, err := table.Serach(key, &version); err == nil {
 		return entry, nil
 	}
 	return nil, utils.ErrKeyNotFound
@@ -77,12 +80,23 @@ func (lh *levelHandler) searchLNSST(key []byte) (*codec.Entry, error) {
 
 func (lh *levelHandler) getTable(key []byte) *table {
 	for i := len(lh.tables) - 1; i >= 0; i-- {
-		if bytes.Compare(key, lh.tables[i].ss.MinKey()) > -1 &&
-			bytes.Compare(key, lh.tables[i].ss.MaxKey()) < 1 {
+		if bytes.Compare(key, lh.tables[i].sst.MinKey()) > -1 &&
+			bytes.Compare(key, lh.tables[i].sst.MaxKey()) < 1 {
 			return lh.tables[i]
 		}
 	}
 	return nil
+}
+
+func newLevelManager(opt *Options) *levelManager {
+	lm := &levelManager{}
+	lm.opt = opt
+	if err := lm.loadManifest(); err != nil {
+		panic(err)
+	}
+	lm.build()
+	return lm
+
 }
 
 func (lm *levelManager) close() error {
@@ -117,21 +131,11 @@ func (lm *levelManager) Get(key []byte) (*codec.Entry, error) {
 	return entry, utils.ErrKeyNotFound
 }
 
-func newLevelManager(opt *Options) *levelManager {
-	lm := &levelManager{}
-	lm.opt = opt
-	if err := lm.loadManifest(); err != nil {
-		panic(err)
-	}
-	lm.build()
-	return lm
-}
-
 func (lm *levelManager) loadCache() {
 	lm.cache = newCache(lm.opt)
 	for _, level := range lm.levels {
 		for _, table := range level.tables {
-			lm.cache.addIndex(table.ss.FID(), table)
+			lm.cache.addIndex(table.sst.FID(), table)
 		}
 	}
 }
@@ -160,7 +164,7 @@ func (lm *levelManager) build() error {
 		if fID > maxFid {
 			maxFid = fID
 		}
-		t := openTable(lm, fileName)
+		t := openTable(lm, fileName, nil)
 		lm.levels[tableInfo.Level].tables = append(lm.levels[tableInfo.Level].tables, t)
 	}
 	for i := 0; i < utils.MaxLevelNum; i++ {
@@ -174,10 +178,15 @@ func (lm *levelManager) build() error {
 func (lm *levelManager) flush(immutable *memTable) error {
 	nextID := atomic.AddUint64(&lm.maxFid, 1)
 	sstName := utils.FileNameSSTable(lm.opt.WorkDir, nextID)
-	table := openTable(lm, sstName)
-	if err := table.ss.SaveSkipListToSSTable(immutable.sl); err != nil {
-		return err
+
+	builder := newTableBuiler(lm.opt)
+	iter := immutable.sl.NewIterator(&iterator.Options{})
+	for iter.Rewind(); iter.Valid(); iter.Next() {
+		entry := iter.Item().Entry()
+		builder.add(entry)
 	}
+	table := openTable(lm, sstName, builder)
+
 	lm.levels[0].add(table)
 	return lm.manifestFile.AddTableMeta(0, &file.TableMeta{
 		ID:       nextID,

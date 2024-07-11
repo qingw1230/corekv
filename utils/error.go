@@ -26,6 +26,8 @@ var (
 	ErrBadMagic = errors.New("bad magic")
 	// ErrBadChecksum bad check sum
 	ErrBadChecksum = errors.New("bad check sum")
+	// ErrChecksumMismatch is returned at checksum mismatch.
+	ErrChecksumMismatch = errors.New("checksum mismatch")
 )
 
 // Panic err 不为 nil 则触发 panic
@@ -43,6 +45,7 @@ func Err(err error) error {
 	return err
 }
 
+// location 获取调用者的位置信息，deep 表示调用栈深度
 func location(deep int, fullPath bool) string {
 	_, file, line, ok := runtime.Caller(deep)
 	if !ok {

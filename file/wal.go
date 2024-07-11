@@ -23,10 +23,10 @@ func OpenWalFile(opt *Options) *WalFile {
 func (wf *WalFile) Write(entry *codec.Entry) error {
 	walData := codec.WalCodec(entry)
 	wf.rw.Lock()
+	defer wf.rw.Unlock()
 	fileData, _, err := wf.f.AllocateSlice(len(walData), 0)
 	utils.Panic(err)
 	copy(fileData, walData)
-	wf.rw.Unlock()
 	return nil
 }
 

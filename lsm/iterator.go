@@ -57,7 +57,7 @@ type memIterator struct {
 
 func (m *memTable) NewIterator(opt *utils.Options) utils.Iterator {
 	return &memIterator{
-		innerIter: m.sl.NewIterator(opt),
+		innerIter: m.sl.NewIterator(),
 	}
 }
 

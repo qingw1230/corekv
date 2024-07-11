@@ -18,17 +18,20 @@ import (
 
 // ManifestFile 维护 sst 文件元信息的文件
 type ManifestFile struct {
-	opt      *Options
-	f        *os.File
-	mu       sync.Mutex
-	manifest *Manifest
+	opt                 *Options
+	f                   *os.File
+	mu                  sync.Mutex
+	manifest            *Manifest
+	delRewriteThreshold int
 }
 
 type Manifest struct {
 	// Levels level -> table sst 每层有哪些 sst 文件
 	Levels []levelManifest
 	// Tables 用于快速查找一个 sst 文件在哪一层
-	Tables map[uint64]TableManifest
+	Tables    map[uint64]TableManifest
+	Creations int
+	Deletions int
 }
 
 // TableManifast 包含 sst 文件的基本信息
@@ -176,6 +179,7 @@ func applyManifestChange(build *Manifest, change *pb.ManifestChange) error {
 		for len(build.Levels) <= int(change.Level) {
 			build.Levels = append(build.Levels, levelManifest{map[uint64]struct{}{}})
 		}
+		build.Creations++
 		build.Levels[change.Level].Tables[change.Id] = struct{}{}
 	case pb.ManifestChange_DELETE:
 		tm, ok := build.Tables[change.Id]
@@ -184,6 +188,7 @@ func applyManifestChange(build *Manifest, change *pb.ManifestChange) error {
 		}
 		delete(build.Tables, change.Id)
 		delete(build.Levels[tm.Level].Tables, change.Id)
+		build.Deletions++
 	default:
 		return fmt.Errorf("MANIFEST file has invalid ManifestChange Op")
 	}
@@ -234,10 +239,12 @@ func (mf *ManifestFile) rewrite() error {
 	if err := mf.Close(); err != nil {
 		return err
 	}
-	fp, _, err := helpRewrite(mf.opt.Dir, mf.manifest)
+	fp, newCreations, err := helpRewrite(mf.opt.Dir, mf.manifest)
 	if err != nil {
 		return err
 	}
+	mf.manifest.Creations = newCreations
+	mf.manifest.Deletions = 0
 	mf.f = fp
 	return nil
 }
@@ -325,7 +332,8 @@ func (mf *ManifestFile) addChanges(changesParam []*pb.ManifestChange) error {
 		return err
 	}
 	// TODO(qingw1230): 添加需要重写的条件，很大并且缩减了很多时重写
-	if false {
+	if mf.manifest.Deletions > utils.ManifestDeletionsRewriteThreshold &&
+		mf.manifest.Deletions > utils.ManifestDeletionsRatio*(mf.manifest.Creations-mf.manifest.Deletions) {
 		if err := mf.rewrite(); err != nil {
 			return err
 		}

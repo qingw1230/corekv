@@ -82,6 +82,7 @@ func (tb *tableBuilder) add(e *utils.Entry) {
 	}
 
 	key := e.Key
+	val := utils.ValueStruct{Value: e.Value}
 	tb.keyHashes = append(tb.keyHashes, utils.Hash(utils.ParseKey(key)))
 	if version := utils.ParseTs(key); version > tb.maxVersion {
 		tb.maxVersion = version
@@ -103,8 +104,8 @@ func (tb *tableBuilder) add(e *utils.Entry) {
 	}
 	tb.append(h.encode())
 	tb.append(diffKey)
-	dst := tb.allocate(int(e.EncodedSize()))
-	e.EncodeEntry(dst)
+	dst := tb.allocate(int(val.EncodedSize()))
+	val.EncodeValue(dst)
 }
 
 // tryFinishBlock 检查当前块是否已满
@@ -112,6 +113,7 @@ func (tb *tableBuilder) tryFinishBlock(e *utils.Entry) bool {
 	if tb.curBlock == nil {
 		return true
 	}
+	val := utils.ValueStruct{Value: e.Value}
 	if len(tb.curBlock.entryOffsets) <= 0 {
 		return false
 	}
@@ -121,7 +123,7 @@ func (tb *tableBuilder) tryFinishBlock(e *utils.Entry) bool {
 		8 + // checksum
 		4) // checksum_len
 	estimatedSize := uint32(tb.curBlock.end) + // kv_data
-		uint32(6 /* header size for entry */) + uint32(len(e.Key)) + uint32(e.EncodedSize()) +
+		uint32(6 /* header size for entry */) + uint32(len(e.Key)) + uint32(val.EncodedSize()) +
 		entriesOffsetsSize // offsets checksum...
 	return estimatedSize > uint32(tb.opt.BlockSize)
 }
@@ -287,12 +289,13 @@ func (b *block) verifyChecksum() error {
 }
 
 type blockIterator struct {
-	block        *block   // 当前指向的 block 块
-	data         []byte   // block 块的 KV 数据部分
-	idx          int      // key 在 entryOffsets 的索引
-	err          error    // 记录错误
-	baseKey      []byte   // 公共 key
-	key          []byte   // 指向的 key
+	block        *block // 当前指向的 block 块
+	data         []byte // block 块的 KV 数据部分
+	idx          int    // key 在 entryOffsets 的索引
+	err          error  // 记录错误
+	baseKey      []byte // 公共 key
+	key          []byte // 指向的 key
+	val          []byte
 	entryOffsets []uint32 // block 内各 key 的偏移
 
 	tableID uint64 // 当前 block 所属 sst 文件
@@ -368,7 +371,9 @@ func (it *blockIterator) setIdx(i int) {
 	// 用重叠部分和不同部分组成完整的 key
 	it.key = append(it.key[:h.overlap], diffKey...)
 	e := utils.NewEntry(it.key, nil)
-	e.DecodeEntry(entryData[valueOff:])
+	val := &utils.ValueStruct{}
+	val.DecodeValue(entryData[valueOff:])
+	it.val = val.Value
 	it.item = &Item{e: e}
 }
 

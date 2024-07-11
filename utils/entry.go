@@ -23,25 +23,34 @@ func NewEntry(key, value []byte) *Entry {
 	}
 }
 
+type ValueStruct struct {
+	Value     []byte
+	ExpiresAt uint64
+}
+
 // EncodedSize 获取编码 Value 和 ExpiresAt 所需字节数
-func (e *Entry) EncodedSize() uint32 {
+func (e *ValueStruct) EncodedSize() uint32 {
 	sz := len(e.Value)
 	enc := sizeVarint(e.ExpiresAt)
 	return uint32(sz + enc)
 }
 
-// EncodeEntry 将 ExpiresAt 和 Value 编码进 buf
-func (e *Entry) EncodeEntry(buf []byte) uint32 {
+// EncodeValue 将 ExpiresAt 和 Value 编码进 buf
+func (e *ValueStruct) EncodeValue(buf []byte) uint32 {
 	sz := binary.PutUvarint(buf[:], e.ExpiresAt)
 	n := copy(buf[sz:], e.Value)
 	return uint32(sz + n)
 }
 
-// DecodeEntry 从 buf 中解码出 ExpiresAt 和 Value
-func (e *Entry) DecodeEntry(buf []byte) {
+// DecodeValue 从 buf 中解码出 ExpiresAt 和 Value
+func (e *ValueStruct) DecodeValue(buf []byte) {
 	var sz int
 	e.ExpiresAt, sz = binary.Uvarint(buf)
 	e.Value = buf[sz:]
+}
+
+func (e *Entry) Entry() *Entry {
+	return e
 }
 
 func (e *Entry) WithTTL(dur time.Duration) *Entry {

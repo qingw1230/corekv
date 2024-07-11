@@ -22,11 +22,17 @@ type table struct {
 
 // openTable 打开 sst 文件，builder 不为空时将数据写到 sst 文件
 func openTable(lm *levelManager, tableName string, builder *tableBuilder) *table {
+	size := int(0)
+	if builder != nil {
+		size = builder.done().size
+	} else {
+		size = int(lm.opt.SSTableMaxSz)
+	}
 	sst := file.OpenSSTable(&file.Options{
 		FileName: tableName,
 		Dir:      lm.opt.WorkDir,
 		Flag:     os.O_CREATE | os.O_RDWR,
-		MaxSz:    int(lm.opt.SSTableMaxSz),
+		MaxSz:    size,
 	})
 	t := &table{
 		sst: sst,

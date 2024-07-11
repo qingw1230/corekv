@@ -173,12 +173,12 @@ func (lm *levelManager) build() error {
 	return nil
 }
 
-func (lm *levelManager) flush(immutable *memTable) error {
+func (lm *levelManager) flush(immutable *memTable) (err error) {
 	nextID := atomic.AddUint64(&lm.maxFid, 1)
 	sstName := utils.FileNameSSTable(lm.opt.WorkDir, nextID)
 
 	builder := newTableBuilder(lm.opt)
-	iter := immutable.sl.NewIterator(&utils.Options{})
+	iter := immutable.sl.NewIterator()
 	for iter.Rewind(); iter.Valid(); iter.Next() {
 		entry := iter.Item().Entry()
 		builder.add(entry)
@@ -186,8 +186,11 @@ func (lm *levelManager) flush(immutable *memTable) error {
 	table := openTable(lm, sstName, builder)
 
 	lm.levels[0].add(table)
-	return lm.manifestFile.AddTableMeta(0, &file.TableMeta{
+	err = lm.manifestFile.AddTableMeta(0, &file.TableMeta{
 		ID:       nextID,
 		Checksum: []byte{'m', 'o', 'c', 'k'},
 	})
+	utils.CondPanic(err != nil, err)
+	immutable.close()
+	return
 }

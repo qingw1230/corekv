@@ -16,7 +16,7 @@ import (
 	"github.com/qingw1230/corekv/utils"
 )
 
-const memFileExt string = ".wal"
+const walFileExt string = ".wal"
 
 type memTable struct {
 	lsm        *LSM
@@ -40,7 +40,7 @@ func (lsm *LSM) NewMemTable() *memTable {
 	return &memTable{
 		lsm: lsm,
 		wal: file.OpenWalFile(fileOpt),
-		sl:  utils.NewSkipList(),
+		sl:  utils.NewSkipList(int64(1 << 20)),
 	}
 }
 
@@ -53,7 +53,7 @@ func (lsm *LSM) OpenMemTable(fid uint32) (*memTable, error) {
 		Flag:     os.O_CREATE | os.O_RDWR,
 		MaxSz:    int(lsm.option.MemTableSize),
 	}
-	sl := utils.NewSkipList()
+	sl := utils.NewSkipList(int64(1 << 20))
 	mt := &memTable{
 		lsm: lsm,
 		sl:  sl,
@@ -106,11 +106,11 @@ func (lsm *LSM) recovery() (*memTable, []*memTable) {
 	var fids []int
 	// 找出所有的 wal 文件
 	for _, file := range files {
-		if !strings.HasSuffix(file.Name(), memFileExt) {
+		if !strings.HasSuffix(file.Name(), walFileExt) {
 			continue
 		}
 		fsz := len(file.Name())
-		fid, err := strconv.ParseInt(file.Name()[:fsz-len(memFileExt)], 10, 64)
+		fid, err := strconv.ParseInt(file.Name()[:fsz-len(walFileExt)], 10, 64)
 		if err != nil {
 			utils.Panic(err)
 			return nil, nil
@@ -140,7 +140,7 @@ func (lsm *LSM) recovery() (*memTable, []*memTable) {
 
 // mtFilePath 生成 wal 文件全路径
 func mtFilePath(dir string, fid uint32) string {
-	return filepath.Join(dir, fmt.Sprintf("%05d%s", fid, memFileExt))
+	return filepath.Join(dir, fmt.Sprintf("%05d%s", fid, walFileExt))
 }
 
 // UpdateSkipList 遍历 wal 文件，将数据重新插入跳表

@@ -1,4 +1,4 @@
-package codec
+package utils
 
 import (
 	"encoding/binary"
@@ -6,7 +6,18 @@ import (
 	"unsafe"
 )
 
+const (
+	// size of vlog header.
+	// +----------------+------------------+
+	// | keyID(8 bytes) |  baseIV(12 bytes)|
+	// +----------------+------------------+
+	ValueLogHeaderSize = 20
+)
+
 type ValuePtr struct {
+	Len    uint32
+	Offset uint32
+	Fid    uint32
 }
 
 func NewValuePtr(entry *Entry) *ValuePtr {
@@ -63,4 +74,8 @@ func BytesToU32Slice(buf []byte) []uint32 {
 	head.Cap = head.Len
 	head.Data = uintptr(unsafe.Pointer(&buf[0]))
 	return u32s
+}
+
+func ValuePtrCodec(vp *ValuePtr) []byte {
+	return []byte{}
 }

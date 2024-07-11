@@ -1,19 +1,17 @@
 package corekv
 
 import (
-	"github.com/qingw1230/corekv/iterator"
 	"github.com/qingw1230/corekv/lsm"
 	"github.com/qingw1230/corekv/utils"
-	"github.com/qingw1230/corekv/utils/codec"
 	"github.com/qingw1230/corekv/vlog"
 )
 
 type (
 	CoreAPI interface {
-		Set(data *codec.Entry) error
-		Get(key []byte) (*codec.Entry, error)
+		Set(data *utils.Entry) error
+		Get(key []byte) (*utils.Entry, error)
 		Del(key []byte) error
-		NewIterator(opt *iterator.Options) iterator.Iterator
+		NewIterator(opt *utils.Options) utils.Iterator
 		Info() *Stats
 		Close() error
 	}
@@ -59,36 +57,36 @@ func (db *DB) Close() error {
 }
 
 func (db *DB) Del(key []byte) error {
-	return db.Set(&codec.Entry{
+	return db.Set(&utils.Entry{
 		Key:       key,
 		Value:     nil,
 		ExpiresAt: 0,
 	})
 }
 
-func (db *DB) Set(data *codec.Entry) error {
-	var valuePtr *codec.ValuePtr
+func (db *DB) Set(data *utils.Entry) error {
+	var valuePtr *utils.ValuePtr
 	if utils.ValueSize(data.Value) > db.opt.ValueThreshold {
-		valuePtr = codec.NewValuePtr(data)
+		valuePtr = utils.NewValuePtr(data)
 		if err := db.vlog.Set(data); err != nil {
 			return err
 		}
 	}
 	if valuePtr != nil {
-		data.Value = codec.ValuePtrCodec(valuePtr)
+		data.Value = utils.ValuePtrCodec(valuePtr)
 	}
 	return db.lsm.Set(data)
 }
 
-func (db *DB) Get(key []byte) (*codec.Entry, error) {
+func (db *DB) Get(key []byte) (*utils.Entry, error) {
 	var (
-		entry *codec.Entry
+		entry *utils.Entry
 		err   error
 	)
 	if entry, err = db.lsm.Get(key); err == nil {
 		return entry, err
 	}
-	if entry != nil && codec.IsValuePtr(entry) {
+	if entry != nil && utils.IsValuePtr(entry) {
 		if entry, err = db.vlog.Get(entry); err == nil {
 			return entry, err
 		}

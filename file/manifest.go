@@ -12,8 +12,8 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/qingw1230/corekv/pb"
 	"github.com/qingw1230/corekv/utils"
-	"github.com/qingw1230/corekv/utils/codec/pb"
 )
 
 // ManifestFile 维护 sst 文件元信息的文件

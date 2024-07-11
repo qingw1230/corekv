@@ -4,8 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/qingw1230/corekv/iterator"
-	"github.com/qingw1230/corekv/utils/codec"
+	"github.com/qingw1230/corekv/utils"
 )
 
 func TestAPI(t *testing.T) {
@@ -13,7 +12,7 @@ func TestAPI(t *testing.T) {
 	db := Open(opt)
 	defer func() { _ = db.Close() }()
 	// 写入
-	e := codec.NewEntry([]byte("hello"), []byte("coreKV")).WithTTL(1 * time.Second)
+	e := utils.NewEntry([]byte("hello"), []byte("coreKV")).WithTTL(1 * time.Second)
 	if err := db.Set(e); err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +23,7 @@ func TestAPI(t *testing.T) {
 		t.Logf("db.Get key=%s, value=%s, expiresAt=%d", entry.Key, entry.Value, entry.ExpiresAt)
 	}
 	// 迭代器
-	iter := db.NewIterator(&iterator.Options{
+	iter := db.NewIterator(&utils.Options{
 		Prefix: []byte("hello"),
 		IsAsc:  false,
 	})

@@ -8,10 +8,8 @@ import (
 	"unsafe"
 
 	"github.com/qingw1230/corekv/file"
-	"github.com/qingw1230/corekv/iterator"
+	"github.com/qingw1230/corekv/pb"
 	"github.com/qingw1230/corekv/utils"
-	"github.com/qingw1230/corekv/utils/codec"
-	"github.com/qingw1230/corekv/utils/codec/pb"
 )
 
 type tableBuilder struct {
@@ -74,7 +72,7 @@ func newTableBuilder(opt *Options) *tableBuilder {
 }
 
 // add 将 entry 数据添加到 block 中
-func (tb *tableBuilder) add(e *codec.Entry) {
+func (tb *tableBuilder) add(e *utils.Entry) {
 	// 检查是否需要重新分配一个新的 block
 	if tb.tryFinishBlock(e) {
 		tb.finishBlock()
@@ -84,8 +82,8 @@ func (tb *tableBuilder) add(e *codec.Entry) {
 	}
 
 	key := e.Key
-	tb.keyHashes = append(tb.keyHashes, utils.Hash(codec.ParseKey(key)))
-	if version := codec.ParseTs(key); version > tb.maxVersion {
+	tb.keyHashes = append(tb.keyHashes, utils.Hash(utils.ParseKey(key)))
+	if version := utils.ParseTs(key); version > tb.maxVersion {
 		tb.maxVersion = version
 	}
 
@@ -110,7 +108,7 @@ func (tb *tableBuilder) add(e *codec.Entry) {
 }
 
 // tryFinishBlock 检查当前块是否已满
-func (tb *tableBuilder) tryFinishBlock(e *codec.Entry) bool {
+func (tb *tableBuilder) tryFinishBlock(e *utils.Entry) bool {
 	if tb.curBlock == nil {
 		return true
 	}
@@ -137,13 +135,13 @@ func (tb *tableBuilder) finishBlock() {
 	tb.curBlock.entriesIndexStart = tb.curBlock.end
 
 	// 追加所有 key 的偏移情况及其长度
-	tb.append(codec.U32SliceToBytes(tb.curBlock.entryOffsets))
-	tb.append(codec.U32ToBytes(uint32(len(tb.curBlock.entryOffsets))))
+	tb.append(utils.U32SliceToBytes(tb.curBlock.entryOffsets))
+	tb.append(utils.U32ToBytes(uint32(len(tb.curBlock.entryOffsets))))
 
 	// 追加校验和（kv 数据和 offsets）及其长度
 	checksum := tb.calculateChecksum(tb.curBlock.data[:tb.curBlock.end])
 	tb.append(checksum)
-	tb.append(codec.U32ToBytes(uint32(len(checksum))))
+	tb.append(utils.U32ToBytes(uint32(len(checksum))))
 
 	tb.blockList = append(tb.blockList, tb.curBlock)
 	tb.curBlock.checksum = checksum
@@ -175,7 +173,7 @@ func (tb *tableBuilder) allocate(need int) []byte {
 
 func (t *tableBuilder) calculateChecksum(data []byte) []byte {
 	checkSum := utils.CalculateChecksum(data)
-	return codec.U64ToBytes(checkSum)
+	return utils.U64ToBytes(checkSum)
 }
 
 // keyDiff 返回 newKey 与 t.curBlock.baseKey 不同的部分
@@ -212,9 +210,9 @@ func (bd *buildData) Copy(dst []byte) int {
 	}
 
 	written += copy(dst[written:], bd.index)
-	written += copy(dst[written:], codec.U32ToBytes(uint32(len(bd.index))))
+	written += copy(dst[written:], utils.U32ToBytes(uint32(len(bd.index))))
 	written += copy(dst[written:], bd.checksum)
-	written += copy(dst[written:], codec.U32ToBytes(uint32(len(bd.checksum))))
+	written += copy(dst[written:], utils.U32ToBytes(uint32(len(bd.checksum))))
 	return written
 }
 
@@ -302,7 +300,7 @@ type blockIterator struct {
 
 	prevOverlap uint16 // 上一个 key 重叠部分长度
 
-	item iterator.Item // 保存数据
+	item utils.Item // 保存数据
 }
 
 // setBlock 将 it 指向指定 block
@@ -369,7 +367,7 @@ func (it *blockIterator) setIdx(i int) {
 	diffKey := entryData[headerSize:valueOff]
 	// 用重叠部分和不同部分组成完整的 key
 	it.key = append(it.key[:h.overlap], diffKey...)
-	e := codec.NewEntry(it.key, nil)
+	e := utils.NewEntry(it.key, nil)
 	e.DecodeEntry(entryData[valueOff:])
 	it.item = &Item{e: e}
 }
@@ -393,7 +391,7 @@ func (it *blockIterator) Rewind() bool {
 	return true
 }
 
-func (it *blockIterator) Item() iterator.Item {
+func (it *blockIterator) Item() utils.Item {
 	return it.item
 }
 

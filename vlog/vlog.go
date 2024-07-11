@@ -2,7 +2,6 @@ package vlog
 
 import (
 	"github.com/qingw1230/corekv/utils"
-	"github.com/qingw1230/corekv/utils/codec"
 )
 
 type Options struct {
@@ -32,10 +31,10 @@ func (v *VLog) StartGC() {
 	}
 }
 
-func (v *VLog) Set(entry *codec.Entry) error {
+func (v *VLog) Set(entry *utils.Entry) error {
 	return nil
 }
 
-func (v *VLog) Get(entry *codec.Entry) (*codec.Entry, error) {
+func (v *VLog) Get(entry *utils.Entry) (*utils.Entry, error) {
 	return nil, nil
 }

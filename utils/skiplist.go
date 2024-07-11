@@ -5,9 +5,6 @@ import (
 	"math/rand"
 	"sync"
 	"time"
-
-	"github.com/qingw1230/corekv/iterator"
-	"github.com/qingw1230/corekv/utils/codec"
 )
 
 const (
@@ -42,12 +39,12 @@ func NewSkipList() *SkipList {
 type Element struct {
 	// levels 节点各层的 next 指针
 	levels []*Element
-	entry  *codec.Entry
+	entry  *Entry
 	// score 由 Key 前 8 位计算出的分值，用来加速比较
 	score float64
 }
 
-func newElement(score float64, entry *codec.Entry, level int) *Element {
+func newElement(score float64, entry *Entry, level int) *Element {
 	return &Element{
 		levels: make([]*Element, level),
 		entry:  entry,
@@ -55,11 +52,11 @@ func newElement(score float64, entry *codec.Entry, level int) *Element {
 	}
 }
 
-func (e *Element) Entry() *codec.Entry {
+func (e *Element) Entry() *Entry {
 	return e.entry
 }
 
-func (sl *SkipList) Add(data *codec.Entry) error {
+func (sl *SkipList) Add(data *Entry) error {
 	sl.rw.Lock()
 	defer sl.rw.Unlock()
 
@@ -111,7 +108,7 @@ func (sl *SkipList) Add(data *codec.Entry) error {
 	return nil
 }
 
-func (sl *SkipList) Search(key []byte) *codec.Entry {
+func (sl *SkipList) Search(key []byte) *Entry {
 	sl.rw.RLock()
 	defer sl.rw.RUnlock()
 
@@ -243,7 +240,7 @@ type SkipListIterator struct {
 	sl *SkipList
 }
 
-func (sl *SkipList) NewIterator(opt *iterator.Options) iterator.Iterator {
+func (sl *SkipList) NewIterator(opt *Options) Iterator {
 	iter := &SkipListIterator{
 		it: sl.header,
 		sl: sl,
@@ -260,7 +257,7 @@ func (iter *SkipListIterator) Valid() bool {
 func (iter *SkipListIterator) Rewind() {
 	iter.it = iter.sl.header.levels[0]
 }
-func (iter *SkipListIterator) Item() iterator.Item {
+func (iter *SkipListIterator) Item() Item {
 	return iter.it
 }
 func (iter *SkipListIterator) Close() error {

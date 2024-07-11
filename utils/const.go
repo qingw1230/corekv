@@ -23,5 +23,6 @@ var (
 	MagicText    = [4]byte{'H', 'A', 'R', 'D'}
 	MagicVersion = uint32(1)
 	// CastagnoliCrcTable 是一个 CRC32 多项式表
-	CastagnoliCrcTable = crc32.MakeTable(crc32.Castagnoli)
+	CastagnoliCrcTable     = crc32.MakeTable(crc32.Castagnoli)
+	MaxHeaderSize      int = 21
 )

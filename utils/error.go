@@ -28,6 +28,9 @@ var (
 	ErrBadChecksum = errors.New("bad check sum")
 	// ErrChecksumMismatch is returned at checksum mismatch.
 	ErrChecksumMismatch = errors.New("checksum mismatch")
+
+	ErrTruncate = errors.New("Do truncate")
+	ErrStop     = errors.New("Stop")
 )
 
 // Panic err 不为 nil 则触发 panic
@@ -35,6 +38,10 @@ func Panic(err error) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func Panic2(_ interface{}, err error) {
+	Panic(err)
 }
 
 // Err 出错时打印调用栈信息

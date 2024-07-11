@@ -5,11 +5,10 @@ package pb
 
 import (
 	fmt "fmt"
+	proto "github.com/golang/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
-
-	proto "github.com/golang/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -310,7 +309,7 @@ func (m *ManifestChange) GetChecksum() []byte {
 	return nil
 }
 
-// TableIndex sst 文件的 index
+// TableIndex sst 文件 block 的 index
 type TableIndex struct {
 	Offsets              []*BlockOffset `protobuf:"bytes,1,rep,name=offsets,proto3" json:"offsets,omitempty"`
 	BloomFilter          []byte         `protobuf:"bytes,2,opt,name=bloomFilter,proto3" json:"bloomFilter,omitempty"`
@@ -382,7 +381,7 @@ func (m *TableIndex) GetKeyCount() uint32 {
 	return 0
 }
 
-// BlockOffset sst index 中保存的每个 block 的情况
+// BlockOffset sst 文件的 block
 type BlockOffset struct {
 	Key                  []byte   `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
 	Offset               uint32   `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`

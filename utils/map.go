@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-	"github.com/qingw1230/corekv/utils/codec"
 )
 
 // CoreMap 封装并发安全的 map
@@ -39,11 +38,11 @@ func (c *CoreMap) keyToHash(key interface{}) uint64 {
 	}
 	switch k := key.(type) {
 	case []byte:
-		return codec.MemHash(k)
+		return MemHash(k)
 	case uint32:
 		return uint64(k)
 	case string:
-		return codec.MemHashString(k)
+		return MemHashString(k)
 	case uint64:
 		return k
 	case byte:

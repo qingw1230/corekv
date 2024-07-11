@@ -7,9 +7,8 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
+	"github.com/qingw1230/corekv/pb"
 	"github.com/qingw1230/corekv/utils"
-	"github.com/qingw1230/corekv/utils/codec"
-	"github.com/qingw1230/corekv/utils/codec/pb"
 )
 
 // SSTable SST 文件结构
@@ -65,7 +64,7 @@ func (sst *SSTable) initTable() (*pb.BlockOffset, error) {
 	// 读取校验和长度
 	readPos -= 4
 	buf := sst.readCheckError(readPos, 4)
-	checksumLen := int(codec.BytesToU32(buf))
+	checksumLen := int(utils.BytesToU32(buf))
 	if checksumLen < 0 {
 		return nil, errors.New("checksum length less than zero. Data corrupted")
 	}
@@ -77,7 +76,7 @@ func (sst *SSTable) initTable() (*pb.BlockOffset, error) {
 	// 读取索引长度
 	readPos -= 4
 	buf = sst.readCheckError(readPos, 4)
-	sst.idxLen = int(codec.BytesToU32(buf))
+	sst.idxLen = int(utils.BytesToU32(buf))
 
 	// 读取索引
 	readPos -= sst.idxLen

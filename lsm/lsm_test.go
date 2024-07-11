@@ -7,12 +7,11 @@ import (
 
 	"github.com/qingw1230/corekv/file"
 	"github.com/qingw1230/corekv/utils"
-	"github.com/qingw1230/corekv/utils/codec"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestLevels(t *testing.T) {
-	entrys := []*codec.Entry{
+	entrys := []*utils.Entry{
 		{Key: []byte("hello0_12345678"), Value: []byte("world0"), ExpiresAt: uint64(0)},
 		{Key: []byte("hello1_12345678"), Value: []byte("world1"), ExpiresAt: uint64(0)},
 		{Key: []byte("hello2_12345678"), Value: []byte("world2"), ExpiresAt: uint64(0)},

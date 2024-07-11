@@ -1,6 +1,4 @@
-package iterator
-
-import "github.com/qingw1230/corekv/utils/codec"
+package utils
 
 type Iterator interface {
 	Next()
@@ -12,7 +10,7 @@ type Iterator interface {
 }
 
 type Item interface {
-	Entry() *codec.Entry
+	Entry() *Entry
 }
 
 type Options struct {

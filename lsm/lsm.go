@@ -2,7 +2,6 @@ package lsm
 
 import (
 	"github.com/qingw1230/corekv/utils"
-	"github.com/qingw1230/corekv/utils/codec"
 )
 
 type LSM struct {
@@ -11,6 +10,7 @@ type LSM struct {
 	levels     *levelManager
 	option     *Options
 	closer     *utils.Closer
+	maxMemFID  uint32
 }
 
 type Options struct {
@@ -41,7 +41,7 @@ func (lsm *LSM) Close() error {
 
 func NewLSM(opt *Options) *LSM {
 	lsm := &LSM{option: opt}
-	lsm.memTable, lsm.immutables = recovery(opt)
+	lsm.memTable, lsm.immutables = lsm.recovery()
 	lsm.levels = newLevelManager(opt)
 	lsm.closer = utils.NewCloser(1)
 	return lsm
@@ -57,12 +57,10 @@ func (lsm *LSM) StartMerge() {
 	}
 }
 
-func (lsm *LSM) Set(entry *codec.Entry) (err error) {
+func (lsm *LSM) Set(entry *utils.Entry) (err error) {
 	if lsm.memTable.Size() > lsm.option.MemTableSize {
 		lsm.immutables = append(lsm.immutables, lsm.memTable)
-		if lsm.memTable, err = NewMemtable(); err != nil {
-			return err
-		}
+		lsm.memTable = lsm.NewMemTable()
 	}
 	if err := lsm.memTable.set(entry); err != nil {
 		return err
@@ -78,9 +76,9 @@ func (lsm *LSM) Set(entry *codec.Entry) (err error) {
 	return nil
 }
 
-func (lsm *LSM) Get(key []byte) (*codec.Entry, error) {
+func (lsm *LSM) Get(key []byte) (*utils.Entry, error) {
 	var (
-		entry *codec.Entry
+		entry *utils.Entry
 		err   error
 	)
 	if entry, err = lsm.memTable.Get(key); entry != nil {

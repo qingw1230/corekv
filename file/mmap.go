@@ -12,13 +12,12 @@ import (
 	"github.com/qingw1230/corekv/utils/mmap"
 )
 
-// MmapFile represents an mmapd file and includes both the buffer to the data and the file descriptor.
+// MmapFile 一个内存映射文件，包括数据缓冲区和文件描述符
 type MmapFile struct {
-	Data []byte
-	Fd   *os.File
+	Data []byte   // 映射出的缓冲区
+	Fd   *os.File // 对应文件的文件描述符
 }
 
-// OpenMmapFileUsing os
 func OpenMmapFileUsing(fd *os.File, sz int, writable bool) (*MmapFile, error) {
 	filename := fd.Name()
 	fi, err := fd.Stat()
@@ -26,22 +25,20 @@ func OpenMmapFileUsing(fd *os.File, sz int, writable bool) (*MmapFile, error) {
 		return nil, errors.Wrapf(err, "cannot stat file: %s", filename)
 	}
 
-	var rerr error
 	fileSize := fi.Size()
 	if sz > 0 && fileSize == 0 {
 		// If file is empty, truncate it to sz.
 		if err := fd.Truncate(int64(sz)); err != nil {
 			return nil, errors.Wrapf(err, "error while truncation")
 		}
-		fileSize = int64(sz)
 	}
 
-	// fmt.Printf("Mmaping file: %s with writable: %v filesize: %d\n", fd.Name(), writable, fileSize)
-	buf, err := mmap.Mmap(fd, writable, fileSize) // Mmap up to file size.
+	buf, err := mmap.Mmap(fd, writable, int64(sz)) // Mmap up to file size.
 	if err != nil {
 		return nil, errors.Wrapf(err, "while mmapping %s with size: %d", fd.Name(), fileSize)
 	}
 
+	// 新文件，需要确保同步目录
 	if fileSize == 0 {
 		dir, _ := filepath.Split(filename)
 		go SyncDir(dir)
@@ -49,15 +46,12 @@ func OpenMmapFileUsing(fd *os.File, sz int, writable bool) (*MmapFile, error) {
 	return &MmapFile{
 		Data: buf,
 		Fd:   fd,
-	}, rerr
+	}, err
 }
 
-// OpenMmapFile opens an existing file or creates a new file. If the file is
-// created, it would truncate the file to maxSz. In both cases, it would mmap
-// the file to maxSz and returned it. In case the file is created, z.NewFile is
-// returned.
+// OpenMmapFile 打开一个现有文件或创建一个新文件。如果创建文件，则会将文件截断为 maxSz。
+// 在这两种情况下，都会将文件映射到 maxSz 并返回。
 func OpenMmapFile(filename string, flag int, maxSz int) (*MmapFile, error) {
-	// fmt.Printf("opening file %s with flag: %v\n", filename, flag)
 	fd, err := os.OpenFile(filename, flag, 0666)
 	if err != nil {
 		return nil, errors.Wrapf(err, "unable to open: %s", filename)
@@ -74,6 +68,14 @@ type mmapReader struct {
 	offset int
 }
 
+func (m *MmapFile) NewReader(offset int) io.Reader {
+	return &mmapReader{
+		Data:   m.Data,
+		offset: offset,
+	}
+}
+
+// Read 从 mmap 缓冲区中读取数据
 func (mr *mmapReader) Read(buf []byte) (int, error) {
 	if mr.offset > len(mr.Data) {
 		return 0, io.EOF
@@ -86,15 +88,7 @@ func (mr *mmapReader) Read(buf []byte) (int, error) {
 	return n, nil
 }
 
-func (m *MmapFile) NewReader(offset int) io.Reader {
-	return &mmapReader{
-		Data:   m.Data,
-		offset: offset,
-	}
-}
-
-// Bytes returns data starting from offset off of size sz. If there's not enough data, it would
-// return nil slice and io.EOF.
+// Bytes 返回 mmap.Data[off : off+sz]
 func (m *MmapFile) Bytes(off, sz int) ([]byte, error) {
 	if len(m.Data[off:]) < sz {
 		return nil, io.EOF
@@ -110,8 +104,8 @@ func (m *MmapFile) Slice(offset int) []byte {
 	if next > len(m.Data) {
 		return []byte{}
 	}
-	res := m.Data[start:next]
-	return res
+	buf := m.Data[start:next]
+	return buf
 }
 
 // AllocateSlice allocates a slice of the given size at the given offset.
@@ -145,8 +139,6 @@ func (m *MmapFile) Sync() error {
 }
 
 func (m *MmapFile) Delete() error {
-	// Badger can set the m.Data directly, without setting any Fd. In that case, this should be a
-	// NOOP.
 	if m.Fd == nil {
 		return nil
 	}
@@ -164,7 +156,7 @@ func (m *MmapFile) Delete() error {
 	return os.Remove(m.Fd.Name())
 }
 
-// Close would close the file. It would also truncate the file if maxSz >= 0.
+// Close 依次调用 Sync Munmap Close
 func (m *MmapFile) Close() error {
 	if m.Fd == nil {
 		return nil
@@ -178,6 +170,7 @@ func (m *MmapFile) Close() error {
 	return m.Fd.Close()
 }
 
+// SyncDir 同步目录
 func SyncDir(dir string) error {
 	df, err := os.Open(dir)
 	if err != nil {
@@ -192,7 +185,7 @@ func SyncDir(dir string) error {
 	return nil
 }
 
-// Truncature 兼容接口
+// Truncature 将文件大小截断为 maxSz，必要时重新映射
 func (m *MmapFile) Truncature(maxSz int64) error {
 	var err error
 	if maxSz >= 0 {

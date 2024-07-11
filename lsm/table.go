@@ -2,18 +2,16 @@ package lsm
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"sort"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/qingw1230/corekv/file"
-	"github.com/qingw1230/corekv/iterator"
+	"github.com/qingw1230/corekv/pb"
 	"github.com/qingw1230/corekv/utils"
-	"github.com/qingw1230/corekv/utils/codec"
-	"github.com/qingw1230/corekv/utils/codec/pb"
 )
 
 type table struct {
@@ -51,7 +49,7 @@ func openTable(lm *levelManager, tableName string, builder *tableBuilder) *table
 }
 
 // Search 在 sst 文件中查找 key
-func (t *table) Search(key []byte, maxVs *uint64) (*codec.Entry, error) {
+func (t *table) Search(key []byte, maxVs *uint64) (*utils.Entry, error) {
 	idx := t.sst.Indexs()
 	// 先用 Bloom 看数据是否存在
 	bloomFilter := utils.Filter(idx.BloomFilter)
@@ -59,7 +57,7 @@ func (t *table) Search(key []byte, maxVs *uint64) (*codec.Entry, error) {
 		return nil, utils.ErrKeyNotFound
 	}
 
-	iter := t.NewIterator(&iterator.Options{})
+	iter := t.NewIterator(&utils.Options{})
 	defer iter.Close()
 
 	iter.Seek(key)
@@ -67,8 +65,8 @@ func (t *table) Search(key []byte, maxVs *uint64) (*codec.Entry, error) {
 		return nil, utils.ErrKeyNotFound
 	}
 
-	if codec.SameKey(key, iter.Item().Entry().Key) {
-		if version := codec.ParseTs(iter.Item().Entry().Key); *maxVs < version {
+	if utils.SameKey(key, iter.Item().Entry().Key) {
+		if version := utils.ParseTs(iter.Item().Entry().Key); *maxVs < version {
 			*maxVs = version
 			return iter.Item().Entry(), nil
 		}
@@ -80,14 +78,14 @@ func (t *table) indexKey() uint64 {
 	return t.fid
 }
 
-func (t *table) getEntry(key, block []byte, idx int) (*codec.Entry, error) {
+func (t *table) getEntry(key, block []byte, idx int) (*utils.Entry, error) {
 	if len(block) == 0 {
 		return nil, utils.ErrKeyNotFound
 	}
 	dataStr := string(block)
 	blocks := strings.Split(dataStr, ",")
 	if idx >= 0 && idx < len(blocks) {
-		return &codec.Entry{
+		return &utils.Entry{
 			Key:   key,
 			Value: []byte(blocks[idx]),
 		}, nil
@@ -112,29 +110,29 @@ func (t *table) block(idx int) (*block, error) {
 	}
 
 	var ko pb.BlockOffset
-	utils.CondPanic(!t.offsets(&ko, idx), fmt.Errorf("block t.offset id=%d"))
+	utils.CondPanic(!t.offsets(&ko, idx), fmt.Errorf("block t.offset id=%d", idx))
 	b = &block{
 		offset: int(ko.GetOffset()),
 	}
 
 	var err error
 	// 读取该 block 块的所有数据
-	if b.data, err = read(b.offset, int(ko.GetLen())); err != nil {
+	if b.data, err = t.read(b.offset, int(ko.GetLen())); err != nil {
 		return nil, errors.Wrapf(err, "faild to read from sst: %d at offset: %d, len: %d",
 			t.sst.FID(), b.offset, ko.GetLen())
 	}
 
 	// 读出校验和及其长度
 	readPos := len(b.data) - 4
-	b.chkLen = int(codec.BytesToU32(b.data[readPos : readPos+4]))
+	b.chkLen = int(utils.BytesToU32(b.data[readPos : readPos+4]))
 	readPos -= b.chkLen
 	b.checksum = b.data[readPos : readPos+b.chkLen]
 
 	readPos -= 4
-	numEntries := int(codec.BytesToU32(b.data[readPos : readPos+4]))
+	numEntries := int(utils.BytesToU32(b.data[readPos : readPos+4]))
 	entriesIndexStart := readPos - (numEntries * 4)
-	entriesIndexEnd = readPos
-	b.entryOffsets = codec.BytesToU32Slice(b.data[entriesIndexStart:entriesIndexEnd])
+	entriesIndexEnd := readPos
+	b.entryOffsets = utils.BytesToU32Slice(b.data[entriesIndexStart:entriesIndexEnd])
 
 	b.data = b.data[:readPos+4]
 	if err = b.verifyChecksum(); err != nil {
@@ -144,6 +142,10 @@ func (t *table) block(idx int) (*block, error) {
 	// 将当前 block 块信息添加到缓存中
 	t.lm.cache.blocks.Set(key, b)
 	return b, nil
+}
+
+func (t *table) read(off, sz int) ([]byte, error) {
+	return t.sst.Bytes(off, sz)
 }
 
 // blockCacheKey 用在缓存时的 key
@@ -156,15 +158,15 @@ func (t *table) blockCacheKey(idx int) []byte {
 }
 
 type tableIterator struct {
-	opt      *iterator.Options
-	item     iterator.Item
+	opt      *utils.Options
+	item     utils.Item
 	t        *table // 当前指向的 sst 文件
 	bi       *blockIterator
 	blockPos int   // 当前指向的 block 索引
 	err      error // 记录错误
 }
 
-func (t *table) NewIterator(opt *iterator.Options) iterator.Iterator {
+func (t *table) NewIterator(opt *utils.Options) utils.Iterator {
 	return &tableIterator{
 		opt: opt,
 		t:   t,
@@ -182,7 +184,7 @@ func (it *tableIterator) Valid() bool {
 func (it *tableIterator) Rewind() {
 }
 
-func (it *tableIterator) Item() iterator.Item {
+func (it *tableIterator) Item() utils.Item {
 	return it.item
 }
 

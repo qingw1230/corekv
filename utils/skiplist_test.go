@@ -5,7 +5,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/qingw1230/corekv/utils/codec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +28,7 @@ func TestSkipList_compare(t *testing.T) {
 
 	byte1 := []byte("112345678")
 	byte2 := []byte("212345678")
-	entry1 := codec.NewEntry(byte1, byte1)
+	entry1 := NewEntry(byte1, byte1)
 
 	byte1Score := sl.calcScore(byte1)
 	byte2Score := sl.calcScore(byte2)
@@ -48,11 +47,11 @@ func TestSkipListBasicCRUD(t *testing.T) {
 	sl := NewSkipList()
 
 	// Add & Search
-	entry1 := codec.NewEntry([]byte("Key1"), []byte("Value1"))
+	entry1 := NewEntry([]byte("Key1"), []byte("Value1"))
 	assert.Nil(t, sl.Add(entry1))
 	assert.Equal(t, entry1.Value, sl.Search(entry1.Key).Value)
 
-	entry2 := codec.NewEntry([]byte("Key2"), []byte("Value2"))
+	entry2 := NewEntry([]byte("Key2"), []byte("Value2"))
 	sl.Add(entry2)
 	assert.Equal(t, entry2.Value, sl.Search(entry2.Key).Value)
 
@@ -60,7 +59,7 @@ func TestSkipListBasicCRUD(t *testing.T) {
 	assert.Nil(t, sl.Search([]byte("noexist")))
 
 	// 更新一个 entry
-	entry1_new := codec.NewEntry([]byte("Key1"), []byte("Val1+1"))
+	entry1_new := NewEntry([]byte("Key1"), []byte("Val1+1"))
 	assert.Nil(t, sl.Add(entry1_new))
 	assert.Equal(t, entry1_new.Value, sl.Search(entry1_new.Key).Value)
 }
@@ -72,7 +71,7 @@ func Benchmark_SkipListBasicCRUD(b *testing.B) {
 
 	for i := 0; i < maxTime; i++ {
 		key, val = RandString(20), RandString(100)
-		entry := codec.NewEntry([]byte(key), []byte(val))
+		entry := NewEntry([]byte(key), []byte(val))
 		e := sl.Add(entry)
 		assert.Equal(b, nil, e)
 		searchVal := sl.Search([]byte(key))
@@ -92,7 +91,7 @@ func TestConcurrentBasicCRUD(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			assert.Nil(t, sl.Add(codec.NewEntry(key(i), key(i))))
+			assert.Nil(t, sl.Add(NewEntry(key(i), key(i))))
 		}(i)
 	}
 
@@ -123,7 +122,7 @@ func Benchmark_ConcurrentBasicCRUD(b *testing.B) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			assert.Nil(b, sl.Add(codec.NewEntry(key(i), key(i))))
+			assert.Nil(b, sl.Add(NewEntry(key(i), key(i))))
 		}(i)
 	}
 

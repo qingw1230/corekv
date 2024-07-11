@@ -7,9 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/qingw1230/corekv/file"
-	"github.com/qingw1230/corekv/iterator"
 	"github.com/qingw1230/corekv/utils"
-	"github.com/qingw1230/corekv/utils/codec"
 )
 
 type levelManager struct {
@@ -34,7 +32,7 @@ func (lh *levelHandler) add(t *table) {
 	lh.tables = append(lh.tables, t)
 }
 
-func (lh *levelHandler) Get(key []byte) (*codec.Entry, error) {
+func (lh *levelHandler) Get(key []byte) (*utils.Entry, error) {
 	if lh.levelNum == 0 {
 		return lh.searchL0SST(key)
 	} else {
@@ -56,23 +54,23 @@ func (lh *levelHandler) Sort() {
 	}
 }
 
-func (lh *levelHandler) searchL0SST(key []byte) (*codec.Entry, error) {
+func (lh *levelHandler) searchL0SST(key []byte) (*utils.Entry, error) {
 	var version uint64
 	for _, table := range lh.tables {
 		if table == nil {
 			return nil, utils.ErrKeyNotFound
 		}
-		if entry, err := table.Serach(key, &version); err == nil {
+		if entry, err := table.Search(key, &version); err == nil {
 			return entry, nil
 		}
 	}
 	return nil, utils.ErrKeyNotFound
 }
 
-func (lh *levelHandler) searchLNSST(key []byte) (*codec.Entry, error) {
+func (lh *levelHandler) searchLNSST(key []byte) (*utils.Entry, error) {
 	table := lh.getTable(key)
 	var version uint64
-	if entry, err := table.Serach(key, &version); err == nil {
+	if entry, err := table.Search(key, &version); err == nil {
 		return entry, nil
 	}
 	return nil, utils.ErrKeyNotFound
@@ -114,9 +112,9 @@ func (lm *levelManager) close() error {
 	return nil
 }
 
-func (lm *levelManager) Get(key []byte) (*codec.Entry, error) {
+func (lm *levelManager) Get(key []byte) (*utils.Entry, error) {
 	var (
-		entry *codec.Entry
+		entry *utils.Entry
 		err   error
 	)
 	if entry, err = lm.levels[0].Get(key); entry != nil {
@@ -179,8 +177,8 @@ func (lm *levelManager) flush(immutable *memTable) error {
 	nextID := atomic.AddUint64(&lm.maxFid, 1)
 	sstName := utils.FileNameSSTable(lm.opt.WorkDir, nextID)
 
-	builder := newTableBuiler(lm.opt)
-	iter := immutable.sl.NewIterator(&iterator.Options{})
+	builder := newTableBuilder(lm.opt)
+	iter := immutable.sl.NewIterator(&utils.Options{})
 	for iter.Rewind(); iter.Valid(); iter.Next() {
 		entry := iter.Item().Entry()
 		builder.add(entry)

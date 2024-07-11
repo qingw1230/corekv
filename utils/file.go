@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/qingw1230/corekv/utils/codec"
 )
 
 // FID 根据 sst 文件名（00001.sst）获取其 id，不符时返回 0
@@ -83,7 +82,7 @@ func CompareKeys(key1, key2 []byte) int {
 // VerifyChecksum 验证 data 的校验和是否与 expected 相同
 func VerifyChecksum(data []byte, expected []byte) error {
 	actual := uint64(crc32.Checksum(data, CastagnoliCrcTable))
-	expectedU64 := codec.BytesToU64(expected)
+	expectedU64 := BytesToU64(expected)
 	if actual != expectedU64 {
 		return errors.Wrapf(ErrChecksumMismatch, "actual: %d, expected: %d", actual, expectedU64)
 	}

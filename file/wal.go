@@ -18,7 +18,6 @@ type WalFile struct {
 	opt     *Options
 	rw      *sync.RWMutex
 	f       *MmapFile
-	fid     uint32
 	buf     *bytes.Buffer
 	size    uint32 // 底层文件大小
 	writeAt uint32 // 写入位置
@@ -30,8 +29,11 @@ func (wf *WalFile) Close() error {
 	if err := wf.f.Close(); err != nil {
 		return err
 	}
-	os.Remove(fileName)
-	return nil
+	return os.Remove(fileName)
+}
+
+func (w *WalFile) Fid() uint64 {
+	return w.opt.FID
 }
 
 func (wf *WalFile) Name() string {
@@ -39,7 +41,7 @@ func (wf *WalFile) Name() string {
 }
 
 func (wf *WalFile) Size() uint32 {
-	return wf.size
+	return wf.writeAt
 }
 
 func OpenWalFile(opt *Options) *WalFile {
@@ -61,7 +63,8 @@ func (wf *WalFile) Write(e *utils.Entry) error {
 	wf.rw.Lock()
 	defer wf.rw.Unlock()
 	len := utils.WalCodec(wf.buf, e)
-	utils.CondPanic(len != copy(wf.f.Data[wf.writeAt:], wf.buf.Bytes()), errors.New("wal.Write"))
+	buf := wf.buf.Bytes()
+	utils.Panic(wf.f.AppendBuffer(wf.writeAt, buf))
 	wf.writeAt += uint32(len)
 	return nil
 }
@@ -107,6 +110,10 @@ loop:
 
 // Truncate 将文件大小截断为 end
 func (wf *WalFile) Truncate(end int64) error {
+	if end <= 0 {
+		return nil
+	}
+
 	if fi, err := wf.f.Fd.Stat(); err != nil {
 		return fmt.Errorf("while file.stat on file: %s, error: %v", wf.Name(), err)
 	} else if fi.Size() == end {

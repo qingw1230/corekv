@@ -7,6 +7,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/qingw1230/corekv/file"
@@ -16,41 +18,55 @@ import (
 
 type table struct {
 	sst *file.SSTable
-	lm  *levelManager
-	fid uint64
+	lm  *levelManager // 所属 levelManager
+	fid uint64        // sst 文件标识
+	ref int32         // 引用计数，用于文件垃圾收集
 }
 
-// openTable 打开 sst 文件，builder 不为空时将数据写到 sst 文件
+// openTable 打开 sst 文件，加载 sst 文件索引部分，builder 不为空时将数据写到 sst 文件
 func openTable(lm *levelManager, tableName string, builder *tableBuilder) *table {
-	size := int(0)
+	sstSize := int(lm.opt.SSTableMaxSz)
 	if builder != nil {
-		size = builder.done().size
-	} else {
-		size = int(lm.opt.SSTableMaxSz)
-	}
-	sst := file.OpenSSTable(&file.Options{
-		FileName: tableName,
-		Dir:      lm.opt.WorkDir,
-		Flag:     os.O_CREATE | os.O_RDWR,
-		MaxSz:    size,
-	})
-	t := &table{
-		sst: sst,
-		lm:  lm,
-		fid: utils.FID(tableName),
+		sstSize = int(builder.done().size)
 	}
 
+	var (
+		t   *table
+		err error
+	)
+	fid := utils.FID(tableName)
+
+	// 将 builder flush 到磁盘
 	if builder != nil {
-		if err := builder.flush(sst); err != nil {
+		if t, err = builder.flush(lm, tableName); err != nil {
 			utils.Err(err)
 			return nil
 		}
+	} else {
+		// 打开一个已经存在的 sst 文件
+		t = &table{
+			lm:  lm,
+			fid: fid,
+		}
+		t.sst = file.OpenSSTable(&file.Options{
+			FileName: tableName,
+			Dir:      lm.opt.WorkDir,
+			Flag:     os.O_CREATE | os.O_RDWR,
+			MaxSz:    int(sstSize),
+		})
 	}
 
-	if err := t.sst.Init(); err != nil {
+	t.IncrRef()
+	// 根据 sst 文件初始化结构体
+	if err = t.sst.Init(); err != nil {
 		utils.Err(err)
 		return nil
 	}
+	it := t.NewIterator(&utils.Options{})
+	defer it.Close()
+	it.Rewind()
+	maxKey := it.Item().Entry().Key
+	t.sst.SetMaxKey(maxKey)
 	return t
 }
 
@@ -134,16 +150,16 @@ func (t *table) block(idx int) (*block, error) {
 	readPos -= b.chkLen
 	b.checksum = b.data[readPos : readPos+b.chkLen]
 
+	b.data = b.data[:readPos]
+	if err = b.verifyChecksum(); err != nil {
+		return nil, err
+	}
+
 	readPos -= 4
 	numEntries := int(utils.BytesToU32(b.data[readPos : readPos+4]))
 	entriesIndexStart := readPos - (numEntries * 4)
 	entriesIndexEnd := readPos
 	b.entryOffsets = utils.BytesToU32Slice(b.data[entriesIndexStart:entriesIndexEnd])
-
-	b.data = b.data[:readPos+4]
-	if err = b.verifyChecksum(); err != nil {
-		return nil, err
-	}
 
 	// 将当前 block 块信息添加到缓存中
 	t.lm.cache.blocks.Set(key, b)
@@ -163,16 +179,19 @@ func (t *table) blockCacheKey(idx int) []byte {
 	return buf
 }
 
+// tableIterator sst 文件迭代器
 type tableIterator struct {
 	opt      *utils.Options
-	item     utils.Item
-	t        *table // 当前指向的 sst 文件
-	bi       *blockIterator
-	blockPos int   // 当前指向的 block 索引
-	err      error // 记录错误
+	item     utils.Item     // 存储数据
+	t        *table         // 当前指向的 sst 文件
+	bi       *blockIterator // sst 内 block 迭代器
+	blockPos int            // 当前指向的 block 索引
+	err      error          // 记录错误
 }
 
+// NewIterator 创建用于遍历 sst 文件的迭代器
 func (t *table) NewIterator(opt *utils.Options) utils.Iterator {
+	t.IncrRef()
 	return &tableIterator{
 		opt: opt,
 		t:   t,
@@ -180,14 +199,52 @@ func (t *table) NewIterator(opt *utils.Options) utils.Iterator {
 	}
 }
 
+// Next 指向 sst 文件下一个 key，一个 block 遍历完就遍历下一个
 func (it *tableIterator) Next() {
+	if it.blockPos >= len(it.t.sst.Indexs().GetOffsets()) {
+		it.err = io.EOF
+		return
+	}
+
+	it.err = nil
+	// 此时遍历到一个新的 sst 文件
+	if len(it.bi.data) == 0 {
+		block, err := it.t.block(it.blockPos)
+		if err != nil {
+			it.err = err
+			return
+		}
+		it.bi.tableID = it.t.fid
+		it.bi.blockID = it.blockPos
+		it.bi.setBlock(block)
+		it.bi.seekToFirst()
+		it.item = it.bi.Item()
+		it.err = it.bi.Error()
+		return
+	}
+
+	it.bi.Next()
+	// 当前 block 遍历完了，遍历下一个
+	if !it.bi.Valid() {
+		it.blockPos++
+		it.bi.data = nil
+		it.Next()
+		return
+	}
+	it.item = it.bi.Item()
 }
 
 func (it *tableIterator) Valid() bool {
-	return it == nil
+	return it.err != io.EOF
 }
 
+// Rewind 定位到遍历需要的第一个 key
 func (it *tableIterator) Rewind() {
+	if it.opt.IsAsc {
+		it.seekToFirst()
+	} else {
+		it.seekToLast()
+	}
 }
 
 func (it *tableIterator) Item() utils.Item {
@@ -195,7 +252,54 @@ func (it *tableIterator) Item() utils.Item {
 }
 
 func (it *tableIterator) Close() error {
-	return nil
+	it.bi.Close()
+	return it.t.DecrRef()
+}
+
+// seekToFirst 定位到当前 sst 文件第一个 block 的第一个 key
+func (it *tableIterator) seekToFirst() {
+	numBlocks := len(it.t.sst.Indexs().Offsets)
+	if numBlocks == 0 {
+		it.err = io.EOF
+		return
+	}
+
+	it.blockPos = 0
+	block, err := it.t.block(it.blockPos)
+	if err != nil {
+		it.err = err
+		return
+	}
+	it.bi.tableID = it.t.fid
+	it.bi.blockID = it.blockPos
+	it.bi.setBlock(block)
+	// 将 bi 指向所属块的第一个 key
+	it.bi.seekToFirst()
+	it.item = it.bi.Item()
+	it.err = it.bi.Error()
+}
+
+// seekToLast 定位到当前 sst 文件最后一个 block 的最后一个 key
+func (it *tableIterator) seekToLast() {
+	numBlocks := len(it.t.sst.Indexs().Offsets)
+	if numBlocks == 0 {
+		it.err = io.EOF
+		return
+	}
+
+	it.blockPos = numBlocks - 1
+	block, err := it.t.block(it.blockPos)
+	if err != nil {
+		it.err = err
+		return
+	}
+	it.bi.tableID = it.t.fid
+	it.bi.blockID = it.blockPos
+	it.bi.setBlock(block)
+	// 将 bi 指向所属块的最后一个 key
+	it.bi.seekToLast()
+	it.item = it.bi.Item()
+	it.err = it.bi.Error()
 }
 
 // Seek 利用二分查找在当前 sst 文件找 key
@@ -247,4 +351,53 @@ func (t *table) offsets(ko *pb.BlockOffset, i int) bool {
 	}
 	*ko = *index.GetOffsets()[i]
 	return true
+}
+
+// Size 返回 sst 文件大小
+func (t *table) Size() int64 {
+	return int64(t.sst.Size())
+}
+
+// GetCreatedAt 返回 sst 文件创建时间
+func (t *table) GetCreatedAt() *time.Time {
+	return t.sst.GetCreatedAt()
+}
+
+// Delete 删除 sst 文件
+func (t *table) Delete() error {
+	return t.sst.Detele()
+}
+
+// StaleDataSize 返回 该 sst 文件中过期数据大小
+func (t *table) StaleDataSize() uint32 {
+	return t.sst.Indexs().StaleDataSize
+}
+
+// DecrReg 减少该 sst 文件的引用计数，无人引用时删除该文件
+func (t *table) DecrRef() error {
+	newRef := atomic.AddInt32(&t.ref, -1)
+	if newRef == 0 {
+		for i := 0; i < len(t.sst.Indexs().GetOffsets()); i++ {
+			t.lm.cache.blocks.Del(t.blockCacheKey(i))
+		}
+		if err := t.Delete(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// IncrRef 增加该 sst 文件的引用计数
+func (t *table) IncrRef() {
+	atomic.AddInt32(&t.ref, 1)
+}
+
+// decrRefs 减少一组 sst 文件的引用计数
+func decrRefs(tables []*table) error {
+	for _, t := range tables {
+		if err := t.DecrRef(); err != nil {
+			return err
+		}
+	}
+	return nil
 }

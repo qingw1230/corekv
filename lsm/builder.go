@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"unsafe"
 
@@ -13,12 +14,15 @@ import (
 )
 
 type tableBuilder struct {
-	opt        *Options
-	curBlock   *block   // 当前使用的 block
-	blockList  []*block // 所有 block 的列表
-	keyCount   uint32   // 所有 block key 总数
-	keyHashes  []uint32 // 所有 key 的 hash 值
-	maxVersion uint64   // 当前的最大版本号
+	opt           *Options
+	curBlock      *block   // 当前使用的 block
+	blockList     []*block // 所有 block 的列表
+	keyCount      uint32   // 所有 block key 总数
+	keyHashes     []uint32 // 所有 key 的 hash 值
+	maxVersion    uint64   // 当前的最大版本号
+	sstSize       int64
+	staleDataSize int   // 过期数据大小
+	estimateSz    int64 // 预估大小
 }
 
 // block sst 文件的一个 block 块
@@ -34,6 +38,7 @@ type block struct {
 	baseKey           []byte   // 当前 block 的公共 key，第一个插入的数据作公共 key
 	entryOffsets      []uint32 // 各个 key 的偏移
 	end               int      // 当前结尾位置
+	estimateSz        int64    // 预估大小
 }
 
 // buildData builder done 生成的数据结构体
@@ -65,23 +70,47 @@ func (h *header) decode(buf []byte) {
 
 const headerSize = uint16(unsafe.Sizeof(header{}))
 
-func newTableBuilder(opt *Options) *tableBuilder {
+func newTableBuilderWithSSTSize(opt *Options, size int64) *tableBuilder {
 	return &tableBuilder{
-		opt: opt,
+		opt:     opt,
+		sstSize: size,
 	}
 }
 
+func newTableBuilder(opt *Options) *tableBuilder {
+	return &tableBuilder{
+		opt:     opt,
+		sstSize: opt.SSTableMaxSz,
+	}
+}
+
+func (t *tableBuilder) empty() bool {
+	return len(t.keyHashes) == 0
+}
+
+// finish 结束当前 builder，将数据写入切片
+func (t *tableBuilder) finish() []byte {
+	bd := t.done()
+	buf := make([]byte, bd.size)
+	written := bd.Copy(buf)
+	utils.CondPanic(written == len(buf), nil)
+	return buf
+}
+
 // add 将 entry 数据添加到 block 中
-func (tb *tableBuilder) add(e *utils.Entry) {
+func (tb *tableBuilder) add(e *utils.Entry, isStale bool) {
+	key := e.Key
 	// 检查是否需要重新分配一个新的 block
 	if tb.tryFinishBlock(e) {
+		if isStale {
+			tb.staleDataSize += len(key) + 4 /* len */ + 4 /* offset */
+		}
 		tb.finishBlock()
 		tb.curBlock = &block{
 			data: make([]byte, tb.opt.BlockSize),
 		}
 	}
 
-	key := e.Key
 	val := utils.ValueStruct{Value: e.Value}
 	tb.keyHashes = append(tb.keyHashes, utils.Hash(utils.ParseKey(key)))
 	if version := utils.ParseTs(key); version > tb.maxVersion {
@@ -113,19 +142,32 @@ func (tb *tableBuilder) tryFinishBlock(e *utils.Entry) bool {
 	if tb.curBlock == nil {
 		return true
 	}
-	val := utils.ValueStruct{Value: e.Value}
 	if len(tb.curBlock.entryOffsets) <= 0 {
 		return false
 	}
 
-	entriesOffsetsSize := uint32((len(tb.curBlock.entryOffsets)+1)*4 + // offsets
+	entriesOffsetsSize := int64((len(tb.curBlock.entryOffsets)+1)*4 + // offsets
 		4 + // offset_len
 		8 + // checksum
 		4) // checksum_len
-	estimatedSize := uint32(tb.curBlock.end) + // kv_data
-		uint32(6 /* header size for entry */) + uint32(len(e.Key)) + uint32(val.EncodedSize()) +
+
+	tb.curBlock.estimateSz = int64(tb.curBlock.end) +
+		int64(6 /* header size for entry */) + int64(len(e.Key)) + int64(e.EncodedSize()) +
 		entriesOffsetsSize // offsets checksum...
-	return estimatedSize > uint32(tb.opt.BlockSize)
+
+	return tb.curBlock.estimateSz > int64(tb.opt.BlockSize)
+}
+
+func (t *tableBuilder) AddStaleKey(e *utils.Entry) {
+	t.staleDataSize += len(e.Key) + len(e.Value) + 4 /* entry offset */ + 4 /* header size */
+	t.add(e, true)
+}
+
+func (t *tableBuilder) AddKey(e *utils.Entry) {
+	t.add(e, false)
+}
+
+func (t *tableBuilder) Close() {
 }
 
 // finishBlock 结束当前块
@@ -144,10 +186,12 @@ func (tb *tableBuilder) finishBlock() {
 	checksum := tb.calculateChecksum(tb.curBlock.data[:tb.curBlock.end])
 	tb.append(checksum)
 	tb.append(utils.U32ToBytes(uint32(len(checksum))))
+	tb.estimateSz += tb.curBlock.estimateSz
 
 	tb.blockList = append(tb.blockList, tb.curBlock)
 	tb.curBlock.checksum = checksum
 	tb.keyCount += uint32(len(tb.curBlock.entryOffsets))
+	tb.curBlock = nil
 }
 
 // append 向 t.curBlock.data 追加 data
@@ -190,18 +234,28 @@ func (t *tableBuilder) keyDiff(newKey []byte) []byte {
 }
 
 // flush 将 builder 数据写入 sst 文件
-func (tb *tableBuilder) flush(sst *file.SSTable) error {
+func (tb *tableBuilder) flush(lm *levelManager, tableName string) (*table, error) {
 	bd := tb.done()
+	t := &table{
+		lm:  lm,
+		fid: utils.FID(tableName),
+	}
+	t.sst = file.OpenSSTable(&file.Options{
+		FileName: tableName,
+		Dir:      lm.opt.WorkDir,
+		Flag:     os.O_CREATE | os.O_RDWR,
+		MaxSz:    int(bd.size),
+	})
 	buf := make([]byte, bd.size)
 	// TODO(qingw1230): 有多次拷贝，需要优化
 	written := bd.Copy(buf)
 	utils.CondPanic(written != len(buf), fmt.Errorf("tableBuilder.flush written != len(buf)"))
-	dst, err := sst.Bytes(0, bd.size)
+	dst, err := t.sst.Bytes(0, bd.size)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	copy(dst, buf)
-	return nil
+	return t, nil
 }
 
 // Copy 将 buildData 数据拷贝到 dst
@@ -283,6 +337,10 @@ func (t *tableBuilder) writeBlockOffset(b *block, startOffset uint32) *pb.BlockO
 	return offset
 }
 
+func (t *tableBuilder) ReachedCapacity() bool {
+	return t.estimateSz > t.sstSize
+}
+
 // verifyChecksum 验证 block kv_data offsets offset_len 的校验和
 func (b *block) verifyChecksum() error {
 	return utils.VerifyChecksum(b.data, b.checksum)
@@ -333,6 +391,14 @@ func (it *blockIterator) seek(key []byte) {
 	it.setIdx(foundEntryIdx)
 }
 
+func (it *blockIterator) seekToFirst() {
+	it.setIdx(0)
+}
+
+func (it *blockIterator) seekToLast() {
+	it.setIdx(len(it.entryOffsets) - 1)
+}
+
 // setIdx 将 it 指向索引为 i 的 key，并更新相关变量
 func (it *blockIterator) setIdx(i int) {
 	it.idx = i
@@ -374,6 +440,8 @@ func (it *blockIterator) setIdx(i int) {
 	val := &utils.ValueStruct{}
 	val.DecodeValue(entryData[valueOff:])
 	it.val = val.Value
+	e.ExpiresAt = val.ExpiresAt
+	e.Value = val.Value
 	it.item = &Item{e: e}
 }
 
@@ -387,7 +455,7 @@ func (it *blockIterator) Next() {
 }
 
 func (it *blockIterator) Valid() bool {
-	return it.item == nil
+	return it.err != io.EOF
 }
 
 // Rewind 重新指向当前 block 的第一个 key

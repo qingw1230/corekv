@@ -73,6 +73,11 @@ func WalCodec(buf *bytes.Buffer, e *Entry) int {
 	return len(headerEnc[:sz]) + len(e.Key) + len(e.Value) + len(crcBuf)
 }
 
+// EstimateWalCodecSize 预估 Entry 写入 wal 文件占用的大小
+func EstimateWalCodecSize(e *Entry) int {
+	return len(e.Key) + len(e.Value) + 8 + crc32.Size + maxHeaderSize
+}
+
 type HashReader struct {
 	R         io.Reader
 	H         hash.Hash32

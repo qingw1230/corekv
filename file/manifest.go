@@ -21,7 +21,7 @@ type ManifestFile struct {
 	opt                 *Options
 	f                   *os.File
 	mu                  sync.Mutex
-	manifest            *Manifest
+	manifest            *Manifest // 实际保存层级关系的的结构体
 	delRewriteThreshold int
 }
 
@@ -36,8 +36,8 @@ type Manifest struct {
 
 // TableManifast 包含 sst 文件的基本信息
 type TableManifest struct {
-	Level    uint8
-	Checksum []byte
+	Level    uint8  // sst 文件所在层级
+	Checksum []byte // mock
 }
 
 // levelManifest 存储一层里有哪些 sst 文件
@@ -51,7 +51,7 @@ type TableMeta struct {
 	Checksum []byte
 }
 
-// OpenManifestFile 打开 manifest 文件
+// OpenManifestFile 打开 manifest 文件，并重放 MANIFEST 存储的层级关系
 func OpenManifestFile(opt *Options) (*ManifestFile, error) {
 	path := filepath.Join(opt.Dir, utils.ManifestFilename)
 	mf := &ManifestFile{
@@ -153,7 +153,7 @@ func ReplayManifestFile(fp *os.File) (*Manifest, int64, error) {
 	return build, offset, nil
 }
 
-// applyChangeSet 对 manifest 文件应用一组更改，修改的是内存中的 Manifest 结构体
+// applyChangeSet 根据 manifest 文件内容应用一组更改（修改内存中的 Manifest 结构体）
 func applyChangeSet(build *Manifest, changeSet *pb.ManifestChangeSet) error {
 	for _, change := range changeSet.Changes {
 		if err := applyManifestChange(build, change); err != nil {
@@ -163,11 +163,11 @@ func applyChangeSet(build *Manifest, changeSet *pb.ManifestChangeSet) error {
 	return nil
 }
 
-// applyManifestChange 对 manifest 应该单个更改
+// applyManifestChange 对 Manifest 结构体应用单个更改
 func applyManifestChange(build *Manifest, change *pb.ManifestChange) error {
 	switch change.Op {
 	case pb.ManifestChange_CREATE:
-		// 检查该 sst 文件信息是否在 manifest 中
+		// 检查该 sst 文件信息是否在 Manifest 中
 		if _, ok := build.Tables[change.Id]; ok {
 			return fmt.Errorf("MANIFEST invalid, table %d exists", change.Id)
 		}
@@ -249,7 +249,9 @@ func (mf *ManifestFile) rewrite() error {
 	return nil
 }
 
-// helpRewrite 用当前状态重写 manifest 文件，修改的是磁盘上的文件
+// helpRewrite 用 Manifest 保存的当前状态重写 manifest 文件，修改的是磁盘上的文件
+// manifest 格式 | magic | version | changes | changes |
+// changes 格式 | len | crc32 | ManifestChangeSet |
 func helpRewrite(dir string, m *Manifest) (*os.File, int, error) {
 	// 打开一个用于重写的 manifest 文件
 	rewritePath := filepath.Join(dir, utils.ManifestRewriteFilename)
@@ -282,7 +284,7 @@ func helpRewrite(dir string, m *Manifest) (*os.File, int, error) {
 	buf = append(buf, lenCRCBuf[:]...)
 	buf = append(buf, changeBuf...)
 
-	// 将 buf 写入用于重写的 manifest 并同步
+	// 将 buf 写入用于 REWRITEMANIFEST 并同步
 	if _, err := fp.Write(buf); err != nil {
 		fp.Close()
 		return nil, 0, err
@@ -314,6 +316,10 @@ func helpRewrite(dir string, m *Manifest) (*os.File, int, error) {
 	}
 
 	return fp, newCreations, nil
+}
+
+func (mf *ManifestFile) AddChanges(changesParam []*pb.ManifestChange) error {
+	return mf.addChanges(changesParam)
 }
 
 // addChanges 添加一批变更，同时更新内存和磁盘的相关结构，必要时重写 manifest 文件

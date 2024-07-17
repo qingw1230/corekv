@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/qingw1230/corekv/utils"
 	"github.com/qingw1230/corekv/utils/mmap"
 )
 
@@ -59,6 +58,10 @@ func OpenMmapFile(filename string, flag int, maxSz int) (*MmapFile, error) {
 	writable := true
 	if flag == os.O_RDONLY {
 		writable = false
+	}
+	// 如果 sst 文件被打开过，则使用其文件原来的大小
+	if fileInfo, err := fd.Stat(); err == nil && fileInfo != nil && fileInfo.Size() > 0 {
+		maxSz = int(fileInfo.Size())
 	}
 	return OpenMmapFileUsing(fd, maxSz, writable)
 }
@@ -131,6 +134,32 @@ func (m *MmapFile) AllocateSlice(sz, offset int) ([]byte, int, error) {
 	return m.Data[start : start+sz], start + sz, nil
 }
 
+const oneGB = 1 << 30
+
+// AppendBuffer 向 mmap 文件追加 buf ，如果空间不足则重新映射
+func (m *MmapFile) AppendBuffer(offset uint32, buf []byte) error {
+	size := len(m.Data)
+	needSize := len(buf)
+	end := int(offset) + needSize
+	if end > size {
+		growBy := size
+		if growBy > oneGB {
+			growBy = oneGB
+		}
+		if growBy < needSize {
+			growBy = needSize
+		}
+		if err := m.Truncature(int64(size + growBy)); err != nil {
+			return err
+		}
+	}
+	len := copy(m.Data[offset:end], buf)
+	if len != needSize {
+		return errors.Errorf("dLen != needSize AppendBuffer failed")
+	}
+	return nil
+}
+
 func (m *MmapFile) Sync() error {
 	if m == nil {
 		return nil
@@ -187,17 +216,16 @@ func SyncDir(dir string) error {
 
 // Truncature 将文件大小截断为 maxSz，必要时重新映射
 func (m *MmapFile) Truncature(maxSz int64) error {
-	var err error
-	if maxSz >= 0 {
-		if err = m.Fd.Truncate(maxSz); err != nil {
-			return fmt.Errorf("while truncate file: %s, error: %v\n", m.Fd.Name(), err)
-		}
-		if maxSz > int64(len(m.Data)) {
-			m.Data, err = mmap.Mremap(m.Data, int(maxSz))
-			return utils.Err(err)
-		}
+	if err := m.Sync(); err != nil {
+		return fmt.Errorf("while sync file: %s, error: %v", m.Fd.Name(), err)
 	}
-	return nil
+	if err := m.Fd.Truncate(maxSz); err != nil {
+		return fmt.Errorf("while truncate file: %s, error: %v", m.Fd.Name(), err)
+	}
+
+	var err error
+	m.Data, err = mmap.Mremap(m.Data, int(maxSz))
+	return err
 }
 
 // ReName 兼容接口

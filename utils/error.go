@@ -31,6 +31,9 @@ var (
 
 	ErrTruncate = errors.New("Do truncate")
 	ErrStop     = errors.New("Stop")
+
+	// compact
+	ErrFillTables = errors.New("Unable to fill tables")
 )
 
 // Panic err 不为 nil 则触发 panic
@@ -47,7 +50,14 @@ func Panic2(_ interface{}, err error) {
 // Err 出错时打印调用栈信息
 func Err(err error) error {
 	if err != nil {
-		fmt.Printf("%s %s", location(2, true), err)
+		fmt.Printf("%s %s\n", location(2, true), err)
+	}
+	return err
+}
+
+func WarpErr(format string, err error) error {
+	if err != nil {
+		fmt.Printf("%s %s %s", format, location(2, true), err)
 	}
 	return err
 }

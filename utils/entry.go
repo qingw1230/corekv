@@ -29,24 +29,24 @@ type ValueStruct struct {
 }
 
 // EncodedSize 获取编码 Value 和 ExpiresAt 所需字节数
-func (e *ValueStruct) EncodedSize() uint32 {
-	sz := len(e.Value)
-	enc := sizeVarint(e.ExpiresAt)
+func (v *ValueStruct) EncodedSize() uint32 {
+	sz := len(v.Value)
+	enc := sizeVarint(v.ExpiresAt)
 	return uint32(sz + enc)
 }
 
 // EncodeValue 将 ExpiresAt 和 Value 编码进 buf
-func (e *ValueStruct) EncodeValue(buf []byte) uint32 {
-	sz := binary.PutUvarint(buf[:], e.ExpiresAt)
-	n := copy(buf[sz:], e.Value)
+func (v *ValueStruct) EncodeValue(buf []byte) uint32 {
+	sz := binary.PutUvarint(buf[:], v.ExpiresAt)
+	n := copy(buf[sz:], v.Value)
 	return uint32(sz + n)
 }
 
 // DecodeValue 从 buf 中解码出 ExpiresAt 和 Value
-func (e *ValueStruct) DecodeValue(buf []byte) {
+func (v *ValueStruct) DecodeValue(buf []byte) {
 	var sz int
-	e.ExpiresAt, sz = binary.Uvarint(buf)
-	e.Value = buf[sz:]
+	v.ExpiresAt, sz = binary.Uvarint(buf)
+	v.Value = buf[sz:]
 }
 
 func (e *Entry) Entry() *Entry {
@@ -74,4 +74,10 @@ func sizeVarint(x uint64) int {
 		}
 	}
 	return n
+}
+
+func (e *Entry) EncodedSize() uint32 {
+	sz := len(e.Value)
+	enc := sizeVarint(e.ExpiresAt)
+	return uint32(sz + enc)
 }

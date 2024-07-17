@@ -72,7 +72,7 @@ func LoadIDMap(dir string) map[uint64]struct{} {
 
 // CompareKeys 比较 key 大小，必须确保 key 长度大于 8 位
 func CompareKeys(key1, key2 []byte) int {
-	CondPanic(len(key1) < 8 || len(key2) < 8, fmt.Errorf("%s,%s < 8", key1, key2))
+	CondPanic(len(key1) < 8 || len(key2) < 8, fmt.Errorf("%s,%s < 8", string(key1), string(key2)))
 	if cmp := bytes.Compare(key1[:8], key2[:8]); cmp != 0 {
 		return cmp
 	}

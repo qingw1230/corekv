@@ -37,7 +37,7 @@ func Open(opt *Options) *DB {
 	})
 	db.vlog = vlog.NewVLog(&vlog.Options{})
 	db.stats = newStats(opt)
-	go db.lsm.StartMerge()
+	go db.lsm.StartCompacter()
 	go db.vlog.StartGC()
 	go db.stats.StartStats()
 	return db

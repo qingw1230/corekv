@@ -4,6 +4,8 @@ import (
 	"io"
 	"os"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
@@ -14,14 +16,15 @@ import (
 // SSTable SST 文件结构
 type SSTable struct {
 	rw             *sync.RWMutex
-	f              *MmapFile // 磁盘文件的 mmap 映射
-	maxKey         []byte    // 该 sst 文件存的最大 key
-	minKey         []byte    // 该 sst 文件存的最小 key
-	idxTables      *pb.TableIndex
+	f              *MmapFile      // 磁盘文件的 mmap 映射
+	maxKey         []byte         // 该 sst 文件存的最大 key
+	minKey         []byte         // 该 sst 文件存的最小 key
+	idxTables      *pb.TableIndex // 该 sst 文件的索引
 	hasBloomFilter bool
 	idxLen         int // 索引长度
 	idxStart       int // 索引开始位置
-	fid            uint32
+	fid            uint64
+	createdAt      time.Time
 }
 
 // OpenSSTable 打开一个 sst 文件
@@ -43,18 +46,21 @@ func (sst *SSTable) Init() error {
 		return err
 	}
 
+	// 从文件中获取创建时间
+	stat, _ := sst.f.Fd.Stat()
+	statType := stat.Sys().(*syscall.Stat_t)
+	sst.createdAt = time.Unix(statType.Ctim.Sec, statType.Ctim.Nsec)
+
 	keyBytes := ko.GetKey()
 	minKey := make([]byte, len(keyBytes))
 	copy(minKey, keyBytes)
 	sst.minKey = minKey
-
-	blockLen := len(sst.idxTables.Offsets)
-	ko = sst.idxTables.Offsets[blockLen-1]
-	keyBytes = ko.GetKey()
-	maxKey := make([]byte, 0)
-	copy(maxKey, keyBytes)
-	sst.maxKey = maxKey
+	sst.maxKey = minKey
 	return nil
+}
+
+func (s *SSTable) SetMaxKey(maxKey []byte) {
+	s.maxKey = maxKey
 }
 
 // initTable 初始化 *SSTable 索引部分
@@ -110,7 +116,7 @@ func (s *SSTable) MinKey() []byte {
 	return s.minKey
 }
 
-func (s *SSTable) FID() uint32 {
+func (s *SSTable) FID() uint64 {
 	return s.fid
 }
 
@@ -141,4 +147,22 @@ func (s *SSTable) read(off, sz int) ([]byte, error) {
 
 func (s *SSTable) Bytes(off, sz int) ([]byte, error) {
 	return s.f.Bytes(off, sz)
+}
+
+func (s *SSTable) Size() int64 {
+	fileStats, err := s.f.Fd.Stat()
+	utils.Panic(err)
+	return fileStats.Size()
+}
+
+func (s *SSTable) GetCreatedAt() *time.Time {
+	return &s.createdAt
+}
+
+func (s *SSTable) Detele() error {
+	return s.f.Delete()
+}
+
+func (s *SSTable) Truncature(size int64) error {
+	return s.f.Truncature(size)
 }

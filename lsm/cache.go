@@ -18,7 +18,7 @@ func newCache(opt *Options) *cache {
 	}
 }
 
-func (c *cache) addIndex(fid uint32, t *table) {
+func (c *cache) addIndex(fid uint64, t *table) {
 	c.indexs.Set(fid, t)
 }
 

@@ -18,8 +18,9 @@ import (
 
 const walFileExt string = ".wal"
 
+// memTable 内存表包含 wal 文件和跳表
 type memTable struct {
-	lsm        *LSM
+	lsm        *LSM // 所属 LSM
 	wal        *file.WalFile
 	sl         *utils.SkipList
 	buf        *bytes.Buffer
@@ -29,10 +30,10 @@ type memTable struct {
 // NewMemTable 创建一个新的内存表
 func (lsm *LSM) NewMemTable() *memTable {
 	// 分配一个新的文件 id
-	fid := atomic.AddUint32(&lsm.maxMemFID, 1)
+	newFid := atomic.AddUint64(&(lsm.lm.maxFID), 1)
 	fileOpt := &file.Options{
-		FID:      fid,
-		FileName: mtFilePath(lsm.option.WorkDir, fid),
+		FID:      newFid,
+		FileName: mtFilePath(lsm.option.WorkDir, newFid),
 		Dir:      lsm.option.WorkDir,
 		Flag:     os.O_CREATE | os.O_RDWR,
 		MaxSz:    int(lsm.option.MemTableSize),
@@ -45,7 +46,7 @@ func (lsm *LSM) NewMemTable() *memTable {
 }
 
 // OpenMemTable 打开指定内存表，并将 wal 文件数据重新插入跳表
-func (lsm *LSM) OpenMemTable(fid uint32) (*memTable, error) {
+func (lsm *LSM) OpenMemTable(fid uint64) (*memTable, error) {
 	fileOpt := &file.Options{
 		FID:      fid,
 		FileName: mtFilePath(lsm.option.WorkDir, fid),
@@ -96,6 +97,7 @@ func (m *memTable) Size() int64 {
 	return m.sl.Size()
 }
 
+// recovery 根据 wal 文件恢复跳表结构
 func (lsm *LSM) recovery() (*memTable, []*memTable) {
 	files, err := ioutil.ReadDir(lsm.option.WorkDir)
 	if err != nil {
@@ -103,43 +105,45 @@ func (lsm *LSM) recovery() (*memTable, []*memTable) {
 		return nil, nil
 	}
 
-	var fids []int
+	// fids 记录所有 wal 文件 ID，并排升序
+	var fids []uint64
+	maxFID := lsm.lm.maxFID
 	// 找出所有的 wal 文件
 	for _, file := range files {
 		if !strings.HasSuffix(file.Name(), walFileExt) {
 			continue
 		}
 		fsz := len(file.Name())
-		fid, err := strconv.ParseInt(file.Name()[:fsz-len(walFileExt)], 10, 64)
+		fid, err := strconv.ParseUint(file.Name()[:fsz-len(walFileExt)], 10, 64)
+		if maxFID < fid {
+			maxFID = fid
+		}
 		if err != nil {
 			utils.Panic(err)
 			return nil, nil
 		}
-		fids = append(fids, int(fid))
+		fids = append(fids, fid)
 	}
-	// 排序所有的 wal 文件，并记录最大 fid
 	sort.Slice(fids, func(i, j int) bool {
 		return fids[i] < fids[j]
 	})
-	if len(fids) != 0 {
-		atomic.StoreUint32(&lsm.maxMemFID, uint32(fids[len(fids)-1]))
-	}
 
 	// 记录不变的内存表
 	imms := []*memTable{}
 	for _, fid := range fids {
-		mt, err := lsm.OpenMemTable(uint32(fid))
+		mt, err := lsm.OpenMemTable(fid)
 		utils.CondPanic(err != nil, err)
 		if mt.sl.Size() == 0 {
 			continue
 		}
 		imms = append(imms, mt)
 	}
+	lsm.lm.maxFID = maxFID
 	return lsm.NewMemTable(), imms
 }
 
 // mtFilePath 生成 wal 文件全路径
-func mtFilePath(dir string, fid uint32) string {
+func mtFilePath(dir string, fid uint64) string {
 	return filepath.Join(dir, fmt.Sprintf("%05d%s", fid, walFileExt))
 }
 
@@ -162,7 +166,6 @@ func (mt *memTable) replayFunction(opt *Options) func(*utils.Entry, *utils.Value
 		if ts := utils.ParseTs(e.Key); ts > mt.maxVersion {
 			mt.maxVersion = ts
 		}
-		mt.sl.Add(e)
-		return nil
+		return mt.sl.Add(e)
 	}
 }

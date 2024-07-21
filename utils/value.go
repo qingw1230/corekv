@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/binary"
 	"reflect"
+	"time"
 	"unsafe"
 )
 
@@ -12,24 +13,50 @@ const (
 	// | keyID(8 bytes) |  baseIV(12 bytes)|
 	// +----------------+------------------+
 	ValueLogHeaderSize = 20
+	vptrSize           = unsafe.Sizeof(ValuePtr{})
 )
 
 type ValuePtr struct {
 	Len    uint32
 	Offset uint32
-	Fid    uint32
+	FID    uint32
 }
 
-func NewValuePtr(entry *Entry) *ValuePtr {
-	return &ValuePtr{}
+// Less v 是否小于 o
+func (v *ValuePtr) Less(o *ValuePtr) bool {
+	if o == nil {
+		return false
+	}
+	if v.FID != o.FID {
+		return v.FID < o.FID
+	}
+	if v.Offset != o.Offset {
+		return v.Offset < o.Offset
+	}
+	return v.Len < o.Len
 }
 
-func IsValuePtr(entry *Entry) bool {
-	return false
+func (v *ValuePtr) IsZero() bool {
+	return v.FID == 0 && v.Offset == 0 && v.Len == 0
 }
 
-func ValuePtrDecode(data []byte) *ValuePtr {
-	return nil
+// Encode 将 ValuePtr 转成 []byte
+func (v ValuePtr) Encode() []byte {
+	b := make([]byte, vptrSize)
+	// 将 b 指向拷贝生成的 v
+	*(*ValuePtr)(unsafe.Pointer(&b[0])) = v
+	return b
+}
+
+func (v *ValuePtr) Decode(b []byte) {
+	// 先将 *ValuePtr 转成 *[vptrSize]byte
+	// 再将 b 的内容拷贝到 v
+	copy(((*[vptrSize]byte)(unsafe.Pointer(v))[:]), b[:vptrSize])
+}
+
+// IsValuePtr 是否是指指针，即 value 存储在 vlog 文件中
+func IsValuePtr(e *Entry) bool {
+	return e.Meta&BitValuePointer > 0
 }
 
 func BytesToU32(b []byte) uint32 {
@@ -78,4 +105,32 @@ func BytesToU32Slice(buf []byte) []uint32 {
 
 func ValuePtrCodec(vp *ValuePtr) []byte {
 	return []byte{}
+}
+
+func RunCallback(cb func()) {
+	if cb != nil {
+		cb()
+	}
+}
+
+// IsDeletedOrExpired 是否已被删除或已过期
+func IsDeletedOrExpired(meta byte, expiresAt uint64) bool {
+	if meta&BitDelete > 0 {
+		return true
+	}
+	if expiresAt == 0 {
+		return false
+	}
+	return expiresAt <= uint64(time.Now().Unix())
+}
+
+// DiscardEntry 是否丢弃 vs，即不需要重写
+func DiscardEntry(e, vs *Entry) bool {
+	if IsDeletedOrExpired(vs.Meta, vs.ExpiresAt) {
+		return true
+	}
+	if (vs.Meta & BitValuePointer) == 0 {
+		return true
+	}
+	return false
 }

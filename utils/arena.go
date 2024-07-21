@@ -17,7 +17,7 @@ type Arena struct {
 const MaxNodeSize = int(unsafe.Sizeof(Element{}))
 
 const offsetSize = int(unsafe.Sizeof(uint32(0)))
-const nodeAlign = int(unsafe.Sizeof(uint64(0))) - 1
+const nodeAlign = int(unsafe.Sizeof(uint32(0))) - 1
 
 func newArena(n int64) *Arena {
 	return &Arena{
@@ -52,10 +52,10 @@ func (a *Arena) allocate(sz uint32) uint32 {
 func (a *Arena) putNode(height int) uint32 {
 	unusedSize := (defaultMaxLevel - height) * offsetSize
 	l := uint32(MaxNodeSize - unusedSize + nodeAlign)
-	n := a.allocate(l)
+	// n := a.allocate(l)
 	// TODO(qingw1230): 怎么返回起始地址也对齐的情况，要怎么申请内存
 	// m := (n + uint32(nodeAlign)) & ^uint32(nodeAlign)
-	return n
+	return l
 }
 
 func (a *Arena) putKey(key []byte) uint32 {
@@ -69,7 +69,7 @@ func (a *Arena) putKey(key []byte) uint32 {
 func (a *Arena) putVal(v ValueStruct) uint32 {
 	l := v.EncodedSize()
 	offset := a.allocate(l)
-	v.EncodeValue(a.buf[offset:])
+	v.EncodeValue(a.buf[offset : offset+l])
 	return offset
 }
 

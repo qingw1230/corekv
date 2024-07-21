@@ -1,14 +1,13 @@
 package lsm
 
 import (
+	"bytes"
 	"fmt"
-	"math/rand"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/qingw1230/corekv/utils"
-	"github.com/stretchr/testify/assert"
 )
 
 var (
@@ -24,86 +23,231 @@ var (
 		TableSizeMultiplier: 2,
 		NumLevelZeroTables:  15,
 		MaxLevelNum:         7,
-		NumCompactors:       2,
+		NumCompactors:       3,
 	}
 )
 
 func TestBase(t *testing.T) {
 	clearDir()
+	lsm := buildLSM()
 	test := func() {
-		lsm := buildLSM()
 		baseTest(t, lsm, 128)
 	}
-	runTest(test, 2)
+	runTest(1, test)
 }
 
 func TestRecovery(t *testing.T) {
-	test := func() {
+	clearDir()
+	recovery := func() {
 		lsm := buildLSM()
 		baseTest(t, lsm, 128)
-		lsm.Set(buildEntry())
 	}
-	runTest(test, 1)
+	runTest(5, recovery)
+}
+
+func TestClose(t *testing.T) {
+	clearDir()
+	lsm := buildLSM()
+	lsm.StartCompacter()
+	test := func() {
+		baseTest(t, lsm, 128)
+		utils.Err(lsm.Close())
+		lsm = buildLSM()
+		baseTest(t, lsm, 128)
+	}
+	runTest(1, test)
+}
+
+func TestHitStorage(t *testing.T) {
+	clearDir()
+	lsm := buildLSM()
+	e := utils.BuildEntry()
+	lsm.Set(e)
+	hitMemtable := func() {
+		v, err := lsm.memTable.Get(e.Key)
+		utils.Err(err)
+		utils.CondPanic(!bytes.Equal(v.Value, e.Value), fmt.Errorf("[hitMemtable] !equal(v.Value, e.Value)"))
+	}
+	hitL0 := func() {
+		baseTest(t, lsm, 128)
+	}
+	hitNotL0 := func() {
+		lsm.lm.runOnce(0)
+		baseTest(t, lsm, 128)
+	}
+	hitBloom := func() {
+		ee := utils.BuildEntry()
+		v, err := lsm.lm.levels[0].tables[0].Search(ee.Key, &ee.Version)
+		utils.CondPanic(v != nil, fmt.Errorf("[hitBloom] v != nil"))
+		utils.CondPanic(err != utils.ErrKeyNotFound, fmt.Errorf("[hitBloom] err != utils.ErrKeyNotFound"))
+	}
+
+	runTest(1, hitMemtable, hitL0, hitNotL0, hitBloom)
+}
+
+func TestPsarameter(t *testing.T) {
+	clearDir()
+	lsm := buildLSM()
+	testNil := func() {
+		utils.CondPanic(lsm.Set(nil) != utils.ErrEmptyKey, fmt.Errorf("[testNil] lsm.Set(nil) != err"))
+		_, err := lsm.Get(nil)
+		utils.CondPanic(err != utils.ErrEmptyKey, fmt.Errorf("[testNil] lsm.Set(nil) != err"))
+	}
+	runTest(1, testNil)
 }
 
 func TestCompact(t *testing.T) {
 	clearDir()
 	lsm := buildLSM()
-	lsm.StartCompacter()
-	test := func() {
-		baseTest(t, lsm, 100)
+	ok := false
+	l0TOLMax := func() {
+		baseTest(t, lsm, 128)
+		fid := lsm.lm.maxFID + 1
+		lsm.lm.runOnce(1)
+		for _, t := range lsm.lm.levels[6].tables {
+			if t.fid == fid {
+				ok = true
+			}
+		}
+		utils.CondPanic(!ok, fmt.Errorf("[l0TOLMax] fid not found"))
 	}
-	runTest(test, 10)
-}
-
-func buildLSM() *LSM {
-	lsm := NewLSM(opt)
-	return lsm
-}
-
-func buildEntry() *utils.Entry {
-	rand.Seed(time.Now().Unix())
-	key := []byte(fmt.Sprintf("%s%s", randStr(16), "12345678"))
-	value := []byte(randStr(128))
-	expiresAt := uint64(time.Now().Add(12*time.Hour).UnixNano() / 1e6)
-	return &utils.Entry{
-		Key:       key,
-		Value:     value,
-		ExpiresAt: expiresAt,
+	l0ToL0 := func() {
+		baseTest(t, lsm, 128)
+		fid := lsm.lm.maxFID + 1
+		cd := buildCompactDef(lsm, 0, 0, 0)
+		tricky(cd.thisLevel.tables)
+		ok := lsm.lm.fillTablesL0ToL0(cd)
+		utils.CondPanic(!ok, fmt.Errorf("[l0ToL0] lsm.levels.fillTablesL0ToL0(cd) ret == false"))
+		err := lsm.lm.runCompactDef(0, 0, *cd)
+		lsm.lm.compactState.delete(*cd)
+		utils.Err(err)
+		ok = false
+		for _, t := range lsm.lm.levels[0].tables {
+			if t.fid == fid {
+				ok = true
+			}
+		}
+		utils.CondPanic(!ok, fmt.Errorf("[l0ToL0] fid not found"))
 	}
+	nextCompact := func() {
+		baseTest(t, lsm, 128)
+		fid := lsm.lm.maxFID + 1
+		cd := buildCompactDef(lsm, 0, 0, 1)
+		tricky(cd.thisLevel.tables)
+		ok := lsm.lm.fillTables(cd)
+		utils.CondPanic(!ok, fmt.Errorf("[nextCompact] lsm.levels.fillTables(cd) ret == false"))
+		err := lsm.lm.runCompactDef(0, 0, *cd)
+		lsm.lm.compactState.delete(*cd)
+		utils.Err(err)
+		ok = false
+		for _, t := range lsm.lm.levels[1].tables {
+			if t.fid == fid {
+				ok = true
+			}
+		}
+		utils.CondPanic(!ok, fmt.Errorf("[nextCompact] fid not found"))
+	}
+
+	maxToMax := func() {
+		baseTest(t, lsm, 128)
+		fid := lsm.lm.maxFID + 1
+		cd := buildCompactDef(lsm, 6, 6, 6)
+		tricky(cd.thisLevel.tables)
+		ok := lsm.lm.fillTables(cd)
+		utils.CondPanic(!ok, fmt.Errorf("[maxToMax] lsm.levels.fillTables(cd) ret == false"))
+		err := lsm.lm.runCompactDef(0, 6, *cd)
+		lsm.lm.compactState.delete(*cd)
+		utils.Err(err)
+		ok = false
+		for _, t := range lsm.lm.levels[6].tables {
+			if t.fid == fid {
+				ok = true
+			}
+		}
+		utils.CondPanic(!ok, fmt.Errorf("[maxToMax] fid not found"))
+	}
+	parallerCompact := func() {
+		baseTest(t, lsm, 128)
+		cd := buildCompactDef(lsm, 0, 0, 1)
+		tricky(cd.thisLevel.tables)
+		ok := lsm.lm.fillTables(cd)
+		utils.CondPanic(!ok, fmt.Errorf("[parallerCompact] lsm.levels.fillTables(cd) ret == false"))
+		go lsm.lm.runCompactDef(0, 0, *cd)
+		lsm.lm.runCompactDef(0, 0, *cd)
+		isParaller := false
+		for _, state := range lsm.lm.compactState.levels {
+			if len(state.ranges) != 0 {
+				isParaller = true
+			}
+		}
+		utils.CondPanic(!isParaller, fmt.Errorf("[parallerCompact] not is paralle"))
+	}
+	runTest(1, l0TOLMax, l0ToL0, nextCompact, maxToMax, parallerCompact)
 }
 
 func baseTest(t *testing.T, lsm *LSM, n int) {
 	e := &utils.Entry{
-		Key:       []byte("CRTSmI4xYMrGSBtL12345678"),
-		Value:     []byte("hImkq95pkCRARFlUoQpCYUiNWYV9lkOd9xiUs0XtFNdOZe5siJVcxjc6j3E5LUng"),
+		Key:       []byte("CRTS😁暗算MrGSBtL12345678"),
+		Value:     []byte("我草了"),
 		ExpiresAt: 0,
 	}
 
 	lsm.Set(e)
 	for i := 1; i < n; i++ {
-		lsm.Set(buildEntry())
+		ee := utils.BuildEntry()
+		lsm.Set(ee)
 	}
 	v, err := lsm.Get(e.Key)
 	utils.Panic(err)
-	assert.Equal(t, e.Value, v.Value)
+	utils.CondPanic(!bytes.Equal(e.Value, v.Value), fmt.Errorf("lsm.Get(e.Key) value not equal !!!"))
 }
 
-func runTest(test func(), n int) {
-	for i := 0; i < n; i++ {
-		test()
+func buildLSM() *LSM {
+	c := make(chan map[uint32]int64, 16)
+	opt.DiscardStatsCh = &c
+	lsm := NewLSM(opt)
+	return lsm
+}
+
+func runTest(n int, testFunList ...func()) {
+	for _, f := range testFunList {
+		for i := 0; i < n; i++ {
+			f()
+		}
 	}
 }
 
-func randStr(length int) string {
-	str := "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	bytes := []byte(str)
-	result := []byte{}
-	rand.Seed(time.Now().UnixNano() + int64(rand.Intn(100)))
-	for i := 0; i < length; i++ {
-		result = append(result, bytes[rand.Intn(len(bytes))])
+func buildCompactDef(lsm *LSM, id, thisLevel, nextLevel int) *compactDef {
+	t := targets{
+		targetSz:  []int64{0, 10485760, 10485760, 10485760, 10485760, 10485760, 10485760},
+		fileSz:    []int64{1024, 2097152, 2097152, 2097152, 2097152, 2097152, 2097152},
+		baseLevel: nextLevel,
 	}
-	return string(result)
+	def := &compactDef{
+		compactID: id,
+		thisLevel: lsm.lm.levels[thisLevel],
+		nextLevel: lsm.lm.levels[nextLevel],
+		t:         t,
+		p:         buildCompactionPriority(lsm, thisLevel, t),
+	}
+	return def
+}
+
+func buildCompactionPriority(lsm *LSM, thisLevel int, t targets) compactionPriority {
+	return compactionPriority{
+		level:    thisLevel,
+		score:    8.6,
+		adjusted: 860,
+		t:        t,
+	}
+}
+
+func tricky(tables []*table) {
+	for _, table := range tables {
+		table.sst.Indexs().StaleDataSize = 10 << 20
+		t, _ := time.Parse("2006-01-02 15:04:05", "1995-08-10 00:00:00")
+		table.sst.SetCreatedAt(&t)
+	}
 }
 
 func clearDir() {

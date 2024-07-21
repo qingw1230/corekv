@@ -32,7 +32,7 @@ func (wf *WalFile) Close() error {
 	return os.Remove(fileName)
 }
 
-func (w *WalFile) Fid() uint64 {
+func (w *WalFile) FID() uint64 {
 	return w.opt.FID
 }
 

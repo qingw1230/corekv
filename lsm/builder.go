@@ -111,7 +111,11 @@ func (tb *tableBuilder) add(e *utils.Entry, isStale bool) {
 		}
 	}
 
-	val := utils.ValueStruct{Value: e.Value}
+	val := utils.ValueStruct{
+		Meta:      e.Meta,
+		Value:     e.Value,
+		ExpiresAt: e.ExpiresAt,
+	}
 	tb.keyHashes = append(tb.keyHashes, utils.Hash(utils.ParseKey(key)))
 	if version := utils.ParseTs(key); version > tb.maxVersion {
 		tb.maxVersion = version
@@ -436,12 +440,13 @@ func (it *blockIterator) setIdx(i int) {
 	diffKey := entryData[headerSize:valueOff]
 	// 用重叠部分和不同部分组成完整的 key
 	it.key = append(it.key[:h.overlap], diffKey...)
-	e := utils.NewEntry(it.key, nil)
+	e := &utils.Entry{Key: it.key}
 	val := &utils.ValueStruct{}
 	val.DecodeValue(entryData[valueOff:])
 	it.val = val.Value
 	e.ExpiresAt = val.ExpiresAt
 	e.Value = val.Value
+	e.Meta = val.Meta
 	it.item = &Item{e: e}
 }
 

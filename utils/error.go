@@ -29,11 +29,25 @@ var (
 	// ErrChecksumMismatch is returned at checksum mismatch.
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 
-	ErrTruncate = errors.New("Do truncate")
+	ErrTruncate = errors.New("do truncate")
 	ErrStop     = errors.New("Stop")
 
 	// compact
-	ErrFillTables = errors.New("Unable to fill tables")
+	ErrFillTables = errors.New("unable to fill tables")
+
+	ErrBlockedWrites  = errors.New("writes are blocked, possibly due to DropAll or Close")
+	ErrTxnTooBig      = errors.New("txn is too big to fit into one request")
+	ErrDeleteVlogFile = errors.New("delete vlog file")
+	ErrNoRoom         = errors.New("no room for write")
+
+	// ErrInvalidRequest is returned if the user request is invalid.
+	ErrInvalidRequest = errors.New("invalid request")
+	// ErrNoRewrite is returned if a call for value log GC doesn't result in a log file rewrite.
+	ErrNoRewrite = errors.New("value log GC attempt didn't result in any cleanup")
+
+	// ErrRejected is returned if a value log GC is called either while another GC is running, or
+	// after DB::Close has been called.
+	ErrRejected = errors.New("value log GC request rejected")
 )
 
 // Panic err 不为 nil 则触发 panic

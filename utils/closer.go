@@ -4,33 +4,28 @@ import "sync"
 
 type Closer struct {
 	waiting     sync.WaitGroup
-	closeSignal chan struct{}
+	CloseSignal chan struct{} // 关闭信号
 }
 
-func NewCloser(i int) *Closer {
+func NewCloser() *Closer {
 	c := &Closer{
 		waiting: sync.WaitGroup{},
 	}
-	c.waiting.Add(i)
-	c.closeSignal = make(chan struct{})
+	c.CloseSignal = make(chan struct{})
 	return c
 }
 
 // Close 关闭，真正调用 wg.Wait()
 func (c *Closer) Close() {
-	close(c.closeSignal)
+	close(c.CloseSignal)
 	c.waiting.Wait()
 }
 
-func (c *Closer) Add(n int) {
-	c.waiting.Add(n)
-}
-
+// Done 标识协程已完成资源回收，通知上游
 func (c *Closer) Done() {
 	c.waiting.Done()
 }
 
-// Wait 返回用于关闭的 channel
-func (c *Closer) Wait() chan struct{} {
-	return c.closeSignal
+func (c *Closer) Add(n int) {
+	c.waiting.Add(n)
 }

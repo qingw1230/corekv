@@ -24,7 +24,7 @@ type SSTable struct {
 	idxLen         int // 索引长度
 	idxStart       int // 索引开始位置
 	fid            uint64
-	createdAt      time.Time
+	createdAt      time.Time // 文件创建时间
 }
 
 // OpenSSTable 打开一个 sst 文件
@@ -57,10 +57,6 @@ func (sst *SSTable) Init() error {
 	sst.minKey = minKey
 	sst.maxKey = minKey
 	return nil
-}
-
-func (s *SSTable) SetMaxKey(maxKey []byte) {
-	s.maxKey = maxKey
 }
 
 // initTable 初始化 *SSTable 索引部分
@@ -102,6 +98,14 @@ func (sst *SSTable) initTable() (*pb.BlockOffset, error) {
 		return indexTable.GetOffsets()[0], nil
 	}
 	return nil, errors.New("read index fail, offset is nil")
+}
+
+func (s *SSTable) Close() error {
+	return s.f.Close()
+}
+
+func (s *SSTable) SetMaxKey(maxKey []byte) {
+	s.maxKey = maxKey
 }
 
 func (s *SSTable) Indexs() *pb.TableIndex {
@@ -157,6 +161,10 @@ func (s *SSTable) Size() int64 {
 
 func (s *SSTable) GetCreatedAt() *time.Time {
 	return &s.createdAt
+}
+
+func (s *SSTable) SetCreatedAt(t *time.Time) {
+	s.createdAt = *t
 }
 
 func (s *SSTable) Detele() error {

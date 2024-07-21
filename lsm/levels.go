@@ -116,7 +116,7 @@ func (lm *levelManager) build() error {
 }
 
 func (lm *levelManager) flush(immutable *memTable) error {
-	nextID := immutable.wal.Fid()
+	nextID := immutable.wal.FID()
 	sstName := utils.FileNameSSTable(lm.opt.WorkDir, nextID)
 
 	builder := newTableBuilder(lm.opt)
@@ -147,6 +147,11 @@ type levelHandler struct {
 }
 
 func (lh *levelHandler) close() error {
+	for i := range lh.tables {
+		if err := lh.tables[i].sst.Close(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

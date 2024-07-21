@@ -22,6 +22,7 @@ func NewSkipList(arenaSize int64) *SkipList {
 	head := newElement(arena, nil, ValueStruct{}, defaultMaxLevel)
 	ho := arena.getElementOffset(head)
 	return &SkipList{
+		maxLevel:   defaultMaxLevel,
 		curHeight:  1,
 		headOffset: ho,
 		arena:      arena,
@@ -80,7 +81,9 @@ func (sl *SkipList) Add(data *Entry) error {
 	score := calcScore(data.Key)
 	var elem *Element
 	value := ValueStruct{
-		Value: data.Value,
+		Meta:      data.Meta,
+		Value:     data.Value,
+		ExpiresAt: data.ExpiresAt,
 	}
 
 	//从当前最大高度开始
@@ -118,11 +121,21 @@ func (sl *SkipList) Add(data *Entry) error {
 	}
 
 	level := sl.randLevel()
-	elem = newElement(sl.arena, data.Key, ValueStruct{Value: data.Value}, level)
+	sl.curHeight = func() int32 {
+		if sl.curHeight >= int32(level) {
+			return sl.curHeight
+		} else {
+			return int32(level)
+		}
+	}()
+	elem = newElement(sl.arena, data.Key, value, level)
 	off := sl.arena.getElementOffset(elem)
 
 	// 将新节点插入跳表各层
 	for i := 0; i < level; i++ {
+		if prevElems[i] == nil {
+			prevElems[i] = sl.arena.getElement(sl.headOffset)
+		}
 		// cur->next = preNode->next
 		elem.levels[i] = prevElems[i].levels[i]
 		// preNode->next = cur
@@ -142,14 +155,19 @@ func (sl *SkipList) Search(key []byte) *Entry {
 
 	score := calcScore(key)
 	prevElem := sl.arena.getElement(sl.headOffset)
-	i := sl.curHeight
+	i := sl.curHeight - 1
 
 	for i >= 0 {
 		for next := sl.getNext(prevElem, int(i)); next != nil; next = sl.getNext(prevElem, int(i)) {
 			if comp := sl.compare(score, key, next); comp <= 0 {
 				if comp == 0 {
 					vo, vSize := decodeValue(next.value)
-					return &Entry{Key: key, Value: sl.arena.getVal(vo, vSize).Value}
+					return &Entry{
+						Key:       key,
+						Value:     sl.arena.getVal(vo, vSize).Value,
+						ExpiresAt: sl.arena.getVal(vo, vSize).ExpiresAt,
+						Meta:      sl.arena.getVal(vo, vSize).Meta,
+					}
 				}
 				// 去下一层找
 				break
@@ -255,6 +273,7 @@ func (iter *SkipListIterator) Item() Item {
 		Key:       iter.sl.arena.getKey(iter.elem.keyOffset, iter.elem.keySize),
 		Value:     iter.sl.arena.getVal(vo, vs).Value,
 		ExpiresAt: iter.sl.arena.getVal(vo, vs).ExpiresAt,
+		Meta:      iter.sl.arena.getVal(vo, vs).Meta,
 	}
 }
 

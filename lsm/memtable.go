@@ -30,10 +30,10 @@ type memTable struct {
 // NewMemTable 创建一个新的内存表
 func (lsm *LSM) NewMemTable() *memTable {
 	// 分配一个新的文件 id
-	newFid := atomic.AddUint64(&(lsm.lm.maxFID), 1)
+	newFID := atomic.AddUint64(&(lsm.lm.maxFID), 1)
 	fileOpt := &file.Options{
-		FID:      newFid,
-		FileName: mtFilePath(lsm.option.WorkDir, newFid),
+		FID:      newFID,
+		FileName: mtFilePath(lsm.option.WorkDir, newFID),
 		Dir:      lsm.option.WorkDir,
 		Flag:     os.O_CREATE | os.O_RDWR,
 		MaxSz:    int(lsm.option.MemTableSize),

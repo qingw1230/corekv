@@ -18,6 +18,8 @@ type Options struct {
 	TableSizeMultiplier int   // 各层 sst 文件大小比例
 	NumLevelZeroTables  int   // L0 层 sst 文件数最大值，默认 15
 	MaxLevelNum         int   // 最大层编号
+
+	DiscardStatsCh *chan map[uint32]int64 // vlog 统计脏数据的 channel
 }
 
 type LSM struct {
@@ -35,11 +37,12 @@ func NewLSM(opt *Options) *LSM {
 	// 初始化 levelManager
 	lsm.lm = lsm.initLevelManager(opt)
 	lsm.memTable, lsm.immutables = lsm.recovery()
-	lsm.closer = utils.NewCloser(1)
+	lsm.closer = utils.NewCloser()
 	return lsm
 }
 
 func (lsm *LSM) Close() error {
+	lsm.closer.Close()
 	if lsm.memTable != nil {
 		if err := lsm.memTable.close(); err != nil {
 			return err
@@ -53,7 +56,6 @@ func (lsm *LSM) Close() error {
 	if err := lsm.lm.close(); err != nil {
 		return err
 	}
-	lsm.closer.Close()
 	return nil
 }
 
@@ -67,10 +69,14 @@ func (lsm *LSM) StartCompacter() {
 }
 
 func (lsm *LSM) Set(entry *utils.Entry) (err error) {
-	if int64(lsm.memTable.wal.Size())+
-		int64(utils.EstimateWalCodecSize(entry)) > lsm.option.MemTableSize {
-		lsm.immutables = append(lsm.immutables, lsm.memTable)
-		lsm.memTable = lsm.NewMemTable()
+	if entry == nil || len(entry.Key) == 0 {
+		return utils.ErrEmptyKey
+	}
+	// 优雅关闭
+	lsm.closer.Add(1)
+	defer lsm.closer.Done()
+	if int64(lsm.memTable.wal.Size())+int64(utils.EstimateWalCodecSize(entry)) > lsm.option.MemTableSize {
+		lsm.Rotate()
 	}
 	if err = lsm.memTable.set(entry); err != nil {
 		return err
@@ -89,6 +95,11 @@ func (lsm *LSM) Set(entry *utils.Entry) (err error) {
 }
 
 func (lsm *LSM) Get(key []byte) (*utils.Entry, error) {
+	if len(key) == 0 {
+		return nil, utils.ErrEmptyKey
+	}
+	lsm.closer.Add(1)
+	defer lsm.closer.Done()
 	var (
 		entry *utils.Entry
 		err   error
@@ -102,4 +113,21 @@ func (lsm *LSM) Get(key []byte) (*utils.Entry, error) {
 		}
 	}
 	return lsm.lm.Get(key)
+}
+
+func (lsm *LSM) MemSize() int64 {
+	return lsm.memTable.Size()
+}
+
+func (lsm *LSM) MemTableIsNil() bool {
+	return lsm.memTable == nil
+}
+
+func (lsm *LSM) GetSkipListFromMemTable() *utils.SkipList {
+	return lsm.memTable.sl
+}
+
+func (lsm *LSM) Rotate() {
+	lsm.immutables = append(lsm.immutables, lsm.memTable)
+	lsm.memTable = lsm.NewMemTable()
 }

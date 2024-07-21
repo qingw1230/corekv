@@ -28,8 +28,8 @@ type compactionPriority struct {
 // targets 管理各层及内部 sst 文件期望大小
 type targets struct {
 	baseLevel int     // 压缩目标层
-	targeSz   []int64 // 每层的期望大小
-	flieSz    []int64 // 每层内 sst 文件期望大小
+	targetSz  []int64 // 每层的期望大小
+	fileSz    []int64 // 每层内 sst 文件期望大小
 }
 
 // compactDef 压缩计划
@@ -72,19 +72,19 @@ func (lm *levelManager) runCompacter(id int) {
 
 	select {
 	case <-randomDelay.C:
-	case <-lm.lsm.closer.Wait():
+	case <-lm.lsm.closer.CloseSignal:
 		randomDelay.Stop()
 		return
 	}
 
 	// 每 50ms 执行一次压缩
-	ticker := time.NewTicker(50 * time.Millisecond)
+	ticker := time.NewTicker(50000 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
 			lm.runOnce(id)
-		case <-lm.lsm.closer.Wait():
+		case <-lm.lsm.closer.CloseSignal:
 			return
 		}
 	}
@@ -214,7 +214,7 @@ func (lm *levelManager) pickCompactLevels() []compactionPriority {
 		delSize := lm.compactState.delSize(i)
 		sz := lm.levels[i].getTotalSize() - delSize
 		// 当前层未在压缩状态的 sst 文件总大小与预期大小的比值为得分
-		addPriority(i, float64(sz)/float64(t.targeSz[i]))
+		addPriority(i, float64(sz)/float64(t.targetSz[i]))
 	}
 
 	// var prevLevel int
@@ -261,15 +261,15 @@ func (lm *levelManager) levelTargets() targets {
 		return sz
 	}
 	t := targets{
-		targeSz: make([]int64, len(lm.levels)),
-		flieSz:  make([]int64, len(lm.levels)),
+		targetSz: make([]int64, len(lm.levels)),
+		fileSz:   make([]int64, len(lm.levels)),
 	}
 
 	// 从最后一层开始计算每层期望大小
 	dbSize := lm.lastLevel().getTotalSize()
 	for i := len(lm.levels) - 1; i > 0; i-- {
 		levelTargetSize := adjust(dbSize)
-		t.targeSz[i] = levelTargetSize
+		t.targetSz[i] = levelTargetSize
 		// 从后向前，找到一个不满足期望大小的 level
 		if t.baseLevel == 0 && levelTargetSize <= lm.opt.BaseLevelSize {
 			t.baseLevel = i
@@ -281,12 +281,12 @@ func (lm *levelManager) levelTargets() targets {
 	tsz := lm.opt.BaseTableSize
 	for i := 0; i < len(lm.levels); i++ {
 		if i == 0 {
-			t.flieSz[i] = lm.opt.MemTableSize
+			t.fileSz[i] = lm.opt.MemTableSize
 		} else if i <= t.baseLevel {
-			t.flieSz[i] = tsz
+			t.fileSz[i] = tsz
 		} else {
 			tsz *= int64(lm.opt.TableSizeMultiplier)
-			t.flieSz[i] = tsz
+			t.fileSz[i] = tsz
 		}
 	}
 
@@ -299,7 +299,7 @@ func (lm *levelManager) levelTargets() targets {
 	}
 	// 当前层为空，下一层也还没满，继续调整 baseLevel
 	b := t.baseLevel
-	if b < len(lm.levels)-1 && lm.levels[b].getTotalSize() == 0 && lm.levels[b+1].getTotalSize() < t.targeSz[b+1] {
+	if b < len(lm.levels)-1 && lm.levels[b].getTotalSize() == 0 && lm.levels[b+1].getTotalSize() < t.targetSz[b+1] {
 		t.baseLevel++
 	}
 	return t
@@ -376,7 +376,7 @@ func (lm *levelManager) sortByHeuristic(tables []*table, cd *compactDef) {
 
 // runCompactDef 执行压缩计划
 func (lm *levelManager) runCompactDef(id, level int, cd compactDef) error {
-	if len(cd.t.flieSz) == 0 {
+	if len(cd.t.fileSz) == 0 {
 		return errors.New("filesize cannot be zero. Targets are not set")
 	}
 
@@ -638,7 +638,7 @@ func (lm *levelManager) fillMaxLevelTables(tables []*table, cd *compactDef) bool
 
 		// 找到了一个需要压缩的 sst 文件
 		cd.top = []*table{t}
-		needFileSz := cd.t.flieSz[cd.thisLevel.levelNum]
+		needFileSz := cd.t.fileSz[cd.thisLevel.levelNum]
 		// 当前 sst 文件已经够大了，不再找更多的文件了
 		if t.Size() >= needFileSz {
 			break
@@ -740,7 +740,7 @@ func (lm *levelManager) fillTablesL0ToL0(cd *compactDef) bool {
 	now := time.Now()
 	// 遍历 L0 层文件，确定要压缩的 sst 文件
 	for _, t := range top {
-		if t.Size() >= 2*cd.t.flieSz[0] {
+		if t.Size() >= 2*cd.t.fileSz[0] {
 			// 在 L0 to L0 的压缩过程中，不对过大的 sst 文件进行压缩，这会造成性能抖动
 			continue
 		}
@@ -769,7 +769,7 @@ func (lm *levelManager) fillTablesL0ToL0(cd *compactDef) bool {
 	}
 
 	// L0 to L0 的压缩最终都会压缩为一个文件，这大大减少了 L0 层文件数量，减少了读放大
-	cd.t.flieSz[0] = math.MaxUint32
+	cd.t.fileSz[0] = math.MaxUint32
 	return true
 }
 
@@ -806,9 +806,31 @@ func iteratorsReversed(tables []*table, opt *utils.Options) []utils.Iterator {
 	return out
 }
 
+// updateDiscardStats 更新 vlog 的脏数据
+func (lm *levelManager) updateDiscardStats(discardStats map[uint32]int64) {
+	select {
+	case *lm.lsm.option.DiscardStatsCh <- discardStats:
+	default:
+	}
+}
+
 // subcompact 将 it 在 kr 范围内的数据压缩到 sst 文件，并写入 tableBuf
 func (lm *levelManager) subcompact(it utils.Iterator, kr keyRange, cd compactDef, inflightBuilders *utils.Throttle, tableBuf chan<- *table) {
 	var lastKey []byte
+
+	// 更新 discardStats
+	discardStats := make(map[uint32]int64)
+	defer func() {
+		lm.updateDiscardStats(discardStats)
+	}()
+
+	updateStats := func(e *utils.Entry) {
+		if e.Meta&utils.BitValuePointer > 0 {
+			var vp utils.ValuePtr
+			vp.Decode(e.Value)
+			discardStats[vp.FID] += int64(vp.Len)
+		}
+	}
 
 	addKeys := func(builder *tableBuilder) {
 		var tableKr keyRange
@@ -836,6 +858,7 @@ func (lm *levelManager) subcompact(it utils.Iterator, kr keyRange, cd compactDef
 			switch {
 			case isExpired:
 				// TODO(qingw1230): 过期数据怎么优化
+				updateStats(it.Item().Entry())
 				builder.AddStaleKey(it.Item().Entry())
 			default:
 				builder.AddKey(it.Item().Entry())
@@ -856,7 +879,7 @@ func (lm *levelManager) subcompact(it utils.Iterator, kr keyRange, cd compactDef
 			break
 		}
 
-		builder := newTableBuilderWithSSTSize(lm.opt, cd.t.flieSz[cd.nextLevel.levelNum])
+		builder := newTableBuilderWithSSTSize(lm.opt, cd.t.fileSz[cd.nextLevel.levelNum])
 		addKeys(builder)
 		if builder.empty() {
 			builder.finish()

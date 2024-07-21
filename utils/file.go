@@ -35,8 +35,20 @@ func FileNameSSTable(dir string, id uint64) string {
 	return filepath.Join(dir, fmt.Sprintf("%05d.sst", id))
 }
 
+func VlogFilePath(dir string, id uint32) string {
+	return fmt.Sprintf("%s%s%05d.vlog", dir, string(os.PathSeparator), id)
+}
+
 func openDir(path string) (*os.File, error) {
 	return os.Open(path)
+}
+
+func CreateSyncedFile(filename string, sync bool) (*os.File, error) {
+	flags := os.O_CREATE | os.O_EXCL | os.O_RDWR
+	if sync {
+		flags |= datasyncFileFlag
+	}
+	return os.OpenFile(filename, flags, DefaultFileMode)
 }
 
 // SyncDir 当创建或删除文件时，必须确保该文件的目录项已同步，以确保在系统崩溃时文件仍可见

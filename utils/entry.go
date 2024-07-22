@@ -28,6 +28,7 @@ type ValueStruct struct {
 	Meta      byte   // 标识是否为值指针
 	Value     []byte // 存储实际数据或指示位置的值指针
 	ExpiresAt uint64
+	Version   uint64
 }
 
 // EncodedSize 获取编码 ValueStruct 所需字节数
@@ -55,6 +56,18 @@ func (v *ValueStruct) DecodeValue(buf []byte) {
 
 func (e *Entry) Entry() *Entry {
 	return e
+}
+
+func (e *Entry) IsDeletedOrExpired() bool {
+	if e.Value == nil {
+		return true
+	}
+
+	if e.ExpiresAt == 0 {
+		return false
+	}
+
+	return e.ExpiresAt <= uint64(time.Now().Unix())
 }
 
 func (e *Entry) WithTTL(dur time.Duration) *Entry {

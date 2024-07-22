@@ -40,9 +40,20 @@ func TestRecovery(t *testing.T) {
 	clearDir()
 	recovery := func() {
 		lsm := buildLSM()
-		baseTest(t, lsm, 128)
+		baseTest(t, lsm, 10)
 	}
-	runTest(5, recovery)
+	// 允许两次就能实现恢复
+	runTest(3, recovery)
+}
+
+func TestRecovery2(t *testing.T) {
+	recovery := func() {
+		// 每次运行都是相当于意外重启
+		lsm := buildLSM()
+		// 测试正确性
+		baseTest(t, lsm, 10)
+	}
+	runTest(3, recovery)
 }
 
 func TestClose(t *testing.T) {

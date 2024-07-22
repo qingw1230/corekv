@@ -104,11 +104,11 @@ func (lsm *LSM) Get(key []byte) (*utils.Entry, error) {
 		entry *utils.Entry
 		err   error
 	)
-	if entry, err = lsm.memTable.Get(key); entry != nil {
+	if entry, err = lsm.memTable.Get(key); entry != nil && entry.Value != nil {
 		return entry, err
 	}
 	for i := len(lsm.immutables) - 1; i >= 0; i-- {
-		if entry, err = lsm.immutables[i].Get(key); entry != nil {
+		if entry, err = lsm.immutables[i].Get(key); entry != nil && entry.Value != nil {
 			return entry, err
 		}
 	}
@@ -127,6 +127,7 @@ func (lsm *LSM) GetSkipListFromMemTable() *utils.SkipList {
 	return lsm.memTable.sl
 }
 
+// Rotate 将 memTable 添加到不可变表，创建新的 memTable
 func (lsm *LSM) Rotate() {
 	lsm.immutables = append(lsm.immutables, lsm.memTable)
 	lsm.memTable = lsm.NewMemTable()

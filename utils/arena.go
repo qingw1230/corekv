@@ -8,18 +8,21 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Arena 一个简易内存池
+const (
+	offsetSize  = int(unsafe.Sizeof(uint32(0)))     // 一层所需大小
+	nodeAlign   = int(unsafe.Sizeof(uint64(0))) - 1 // 节点对齐数
+	MaxNodeSize = int(unsafe.Sizeof(node{}))        // 一个跳表节点最大大小
+)
+
+// Arena 一个简易内存池，是无锁的
 type Arena struct {
-	n   uint32 // 已使用偏移
-	buf []byte
+	n          uint32 // 已使用偏移
+	shouldGrow bool
+	buf        []byte
 }
 
-const MaxNodeSize = int(unsafe.Sizeof(Element{}))
-
-const offsetSize = int(unsafe.Sizeof(uint32(0)))
-const nodeAlign = int(unsafe.Sizeof(uint32(0))) - 1
-
 func newArena(n int64) *Arena {
+	// 开始的 1 字节表示空节点
 	return &Arena{
 		n:   1,
 		buf: make([]byte, n),
@@ -29,6 +32,10 @@ func newArena(n int64) *Arena {
 // allocate 申请 sz 字节空间
 func (a *Arena) allocate(sz uint32) uint32 {
 	offset := atomic.AddUint32(&a.n, sz)
+	if !a.shouldGrow {
+		AssertTrue(int(offset) <= len(a.buf))
+		return offset - sz
+	}
 
 	// 空间不够时扩容
 	if int(offset) > len(a.buf)-MaxNodeSize {
@@ -48,16 +55,20 @@ func (a *Arena) allocate(sz uint32) uint32 {
 	return offset - sz
 }
 
-// putNode 申请层高为 height 的跳表节点空间
-func (a *Arena) putNode(height int) uint32 {
-	unusedSize := (defaultMaxLevel - height) * offsetSize
-	l := uint32(MaxNodeSize - unusedSize + nodeAlign)
-	// n := a.allocate(l)
-	// TODO(qingw1230): 怎么返回起始地址也对齐的情况，要怎么申请内存
-	// m := (n + uint32(nodeAlign)) & ^uint32(nodeAlign)
-	return l
+// size 获取已使用大小
+func (a *Arena) size() int64 {
+	return int64(atomic.LoadUint32(&a.n))
 }
 
+// putNode 为层高为 height 的 node 节点申请空间，返回申请的空间的起始偏移
+func (a *Arena) putNode(height int) uint32 {
+	unusedSize := (maxHeight - height) * offsetSize
+	l := uint32(MaxNodeSize-unusedSize+nodeAlign) & ^uint32(nodeAlign)
+	n := a.allocate(l)
+	return n
+}
+
+// putKey 将 key 放入 arena
 func (a *Arena) putKey(key []byte) uint32 {
 	keySz := uint32(len(key))
 	offset := a.allocate(keySz)
@@ -66,18 +77,20 @@ func (a *Arena) putKey(key []byte) uint32 {
 	return offset
 }
 
+// putVal 将 ValueStruct 放入 arena
 func (a *Arena) putVal(v ValueStruct) uint32 {
-	l := v.EncodedSize()
+	l := uint32(v.EncodedSize())
 	offset := a.allocate(l)
-	v.EncodeValue(a.buf[offset : offset+l])
+	v.EncodeValue(a.buf[offset:a.n])
 	return offset
 }
 
-func (a *Arena) getElement(offset uint32) *Element {
+// getNode 根据 offset 取出在 arena 的 node
+func (a *Arena) getNode(offset uint32) *node {
 	if offset == 0 {
 		return nil
 	}
-	return (*Element)(unsafe.Pointer(&a.buf[offset]))
+	return (*node)(unsafe.Pointer(&a.buf[offset]))
 }
 
 func (a *Arena) getKey(offset uint32, size uint16) []byte {
@@ -89,19 +102,11 @@ func (a *Arena) getVal(offset uint32, size uint32) (v ValueStruct) {
 	return
 }
 
-func (a *Arena) getElementOffset(node *Element) uint32 {
-	if node == nil {
+func (a *Arena) getNodeOffset(nd *node) uint32 {
+	if nd == nil {
 		return 0
 	}
-	return uint32(uintptr(unsafe.Pointer(node)) - uintptr(unsafe.Pointer(&a.buf[0])))
-}
-
-func (e *Element) getNextOffset(h int) uint32 {
-	return atomic.LoadUint32(&e.levels[h])
-}
-
-func (a *Arena) Size() int64 {
-	return int64(atomic.LoadUint32(&a.n))
+	return uint32(uintptr(unsafe.Pointer(nd)) - uintptr(unsafe.Pointer(&a.buf[0])))
 }
 
 func AssertTrue(b bool) {

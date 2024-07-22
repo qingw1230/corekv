@@ -1,6 +1,7 @@
 package corekv
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,15 +12,26 @@ func TestAPI(t *testing.T) {
 	clearDir()
 	db := Open(opt)
 	defer func() { _ = db.Close() }()
-	e := utils.NewEntry([]byte("hello"), []byte("coreKV")).WithTTL(1 * time.Second)
-	if err := db.Set(e); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 50; i++ {
+		key, val := fmt.Sprintf("key%d", i), fmt.Sprintf("val%d", i)
+		e := utils.NewEntry([]byte(key), []byte(val)).WithTTL(1000 * time.Second)
+		if err := db.Set(e); err != nil {
+			t.Fatal(err)
+		}
+		if entry, err := db.Get([]byte(key)); err != nil {
+			t.Fatal(err)
+		} else {
+			t.Logf("db.Get key=%s, value=%s, expiresAt=%d", entry.Key, entry.Value, entry.ExpiresAt)
+		}
 	}
-	if entry, err := db.Get([]byte("hello")); err != nil {
-		t.Fatal(err)
-	} else {
-		t.Logf("db.Get key=%s, value=%s, expiresAt=%d", entry.Key, entry.Value, entry.ExpiresAt)
+
+	for i := 0; i < 40; i++ {
+		key, _ := fmt.Sprintf("key%d", i), fmt.Sprintf("val%d", i)
+		if err := db.Del([]byte(key)); err != nil {
+			t.Fatal(err)
+		}
 	}
+
 	iter := db.NewIterator(&utils.Options{
 		Prefix: []byte("hello"),
 		IsAsc:  false,
@@ -34,6 +46,20 @@ func TestAPI(t *testing.T) {
 	if err := db.Del([]byte("hello")); err != nil {
 		t.Fatal(err)
 	}
+
+	for i := 0; i < 10; i++ {
+		key, val := fmt.Sprintf("key%d", i), fmt.Sprintf("val%d", i)
+		e := utils.NewEntry([]byte(key), []byte(val)).WithTTL(1000 * time.Second)
+		if err := db.Set(e); err != nil {
+			t.Fatal(err)
+		}
+		if entry, err := db.Get([]byte(key)); err != nil {
+			t.Fatal(err)
+		} else {
+			t.Logf("db.Get key=%s, value=%s, expiresAt=%d", entry.Key, entry.Value, entry.ExpiresAt)
+		}
+	}
+
 }
 
 func FuzzAPI(f *testing.F) {

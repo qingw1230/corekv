@@ -151,8 +151,21 @@ func (db *DB) Get(key []byte) (*utils.Entry, error) {
 		}
 		e.Value = utils.SafeCopy(nil, res)
 	}
-	e.Key = utils.ParseKey(e.Key)
+	if isDeletedOrExpired(e) {
+		return nil, utils.ErrKeyNotFound
+	}
 	return e, nil
+}
+
+func isDeletedOrExpired(e *utils.Entry) bool {
+	if e.Value == nil {
+		return true
+	}
+	if e.ExpiresAt == 0 {
+		return false
+	}
+
+	return e.ExpiresAt <= uint64(time.Now().Unix())
 }
 
 func (db *DB) Info() *Stats {

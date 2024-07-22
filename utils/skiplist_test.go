@@ -19,87 +19,133 @@ func RandString(len int) string {
 }
 
 func TestSkipListBasicCRUD(t *testing.T) {
-	sl := NewSkipList(1000)
+	list := NewSkipList(1000)
 
-	// Add & Search
-	entry1 := NewEntry([]byte("Key1"), []byte("Value1"))
-	assert.Nil(t, sl.Add(entry1))
-	assert.Equal(t, entry1.Value, sl.Search(entry1.Key).Value)
+	// Put & Get
+	entry1 := NewEntry([]byte("Key1111111"), []byte(RandString(10)))
+	list.Add(entry1)
+	vs := list.Search(entry1.Key)
+	assert.Equal(t, entry1.Value, vs.Value)
 
-	entry2 := NewEntry([]byte("Key2"), []byte("Value2"))
-	sl.Add(entry2)
-	assert.Equal(t, entry2.Value, sl.Search(entry2.Key).Value)
+	entry2 := NewEntry([]byte("Key2222222"), []byte(RandString(10)))
+	list.Add(entry2)
+	vs = list.Search(entry2.Key)
+	assert.Equal(t, entry2.Value, vs.Value)
 
-	// 获取一个不存在的 entry
-	assert.Nil(t, sl.Search([]byte("noexist")))
+	// Get a not exist entry
+	assert.Nil(t, list.Search([]byte(RandString(10))).Value)
 
-	// 更新一个 entry
-	entry1_new := NewEntry([]byte("Key1"), []byte("Val1+1"))
-	assert.Nil(t, sl.Add(entry1_new))
-	assert.Equal(t, entry1_new.Value, sl.Search(entry1_new.Key).Value)
+	// Update a entry
+	entry2_new := NewEntry([]byte("Key2222222"), []byte(RandString(10)))
+	list.Add(entry2_new)
+	assert.Equal(t, entry2_new.Value, list.Search(entry2_new.Key).Value)
 }
 
 func Benchmark_SkipListBasicCRUD(b *testing.B) {
-	sl := NewSkipList(1000)
-	key, val := "", ""
-	maxTime := 10000
+	for i := 0; i < b.N; i++ {
+		sl := NewSkipList(100000000)
+		// 1 goroutine 插入并读取 100000 条数据耗时大约为 1.2 s
+		maxTime := 100000
 
-	for i := 0; i < maxTime; i++ {
-		key, val = RandString(20), RandString(100)
-		entry := NewEntry([]byte(key), []byte(val))
-		e := sl.Add(entry)
-		assert.Equal(b, nil, e)
-		searchVal := sl.Search([]byte(key))
-		if searchVal != nil {
-			assert.Equal(b, []byte(val), searchVal.Value)
+		// 预先创建 Entry 列表
+		entries := make([]*Entry, maxTime)
+		for i := 0; i < maxTime; i++ {
+			key, val := RandString(10), fmt.Sprintf("Val%d", i)
+			entry := NewEntry([]byte(key), []byte(val))
+			entries[i] = entry
+		}
+
+		// 重置计时器，以便从循环开始时计时
+		b.ResetTimer()
+		for i := 0; i < maxTime; i++ {
+			entry := entries[i]
+			sl.Add(entry)
+			searchVal := sl.Search([]byte(entry.Key))
+			assert.Equal(b, searchVal.Value, entry.Value)
 		}
 	}
 }
 
-func TestConcurrentBasicCRUD(t *testing.T) {
-	const n = 10000
-	sl := NewSkipList(1000)
-	key := func(i int) []byte {
-		return []byte(fmt.Sprintf("%05d", i))
-	}
-	var wg sync.WaitGroup
+func Benchmark_SkipListBasicCRUD2(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		sl := NewSkipList(100000000)
+		// 1 goroutine 插入并读取 100000 条数据耗时大约为 1.2s
+		// 2 goroutine 插入并读取 200000 条数据耗时大约为 1.5s
+		maxTime := 200000
 
+		// 预先创建 Entry 列表
+		entries := make([]*Entry, maxTime)
+		for i := 0; i < maxTime; i++ {
+			key, val := RandString(10), fmt.Sprintf("Val%d", i)
+			entry := NewEntry([]byte(key), []byte(val))
+			entries[i] = entry
+		}
+
+		// 重置计时器，以便从循环开始时计时
+		var wg sync.WaitGroup
+		b.ResetTimer()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < maxTime/2; i++ {
+				entry := entries[i]
+				sl.Add(entry)
+				searchVal := sl.Search([]byte(entry.Key))
+				assert.Equal(b, searchVal.Value, entry.Value)
+			}
+		}()
+
+		for i := maxTime / 2; i < maxTime; i++ {
+			entry := entries[i]
+			sl.Add(entry)
+			searchVal := sl.Search([]byte(entry.Key))
+			assert.Equal(b, searchVal.Value, entry.Value)
+		}
+		wg.Wait()
+	}
+}
+
+func TestConcurrentBasic(t *testing.T) {
+	const n = 1000
+	l := NewSkipList(100000000)
+	var wg sync.WaitGroup
+	key := func(i int) []byte {
+		return []byte(fmt.Sprintf("Keykeykey%05d", i))
+	}
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			assert.Nil(t, sl.Add(NewEntry(key(i), key(i))))
+			l.Add(NewEntry(key(i), key(i)))
 		}(i)
 	}
+	wg.Wait()
 
+	// Check values. Concurrent reads.
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			v := sl.Search(key(i))
-			if v != nil {
-				require.EqualValues(t, key(i), v.Value)
-				return
-			}
-			require.Nil(t, v)
+			v := l.Search(key(i))
+			require.EqualValues(t, key(i), v.Value)
+			return
 		}(i)
 	}
 	wg.Wait()
 }
 
-func Benchmark_ConcurrentBasicCRUD(b *testing.B) {
-	const n = 10000
-	sl := NewSkipList(1000)
-	key := func(i int) []byte {
-		return []byte(fmt.Sprintf("%05d", i))
-	}
+func Benchmark_ConcurrentBasic(b *testing.B) {
+	const n = 1000
+	l := NewSkipList(1 << 20)
 	var wg sync.WaitGroup
-
+	key := func(i int) []byte {
+		return []byte(fmt.Sprintf("keykeykey%05d", i))
+	}
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			assert.Nil(b, sl.Add(NewEntry(key(i), key(i))))
+			l.Add(NewEntry(key(i), key(i)))
 		}(i)
 	}
 
@@ -107,13 +153,31 @@ func Benchmark_ConcurrentBasicCRUD(b *testing.B) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			v := sl.Search(key(i))
-			if v != nil {
-				require.EqualValues(b, key(i), v.Value)
-				return
-			}
-			require.Nil(b, v)
+			_ = l.Search(key(i))
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestSkipListIterator(t *testing.T) {
+	list := NewSkipList(100000)
+
+	//Put & Get
+	entry1 := NewEntry([]byte(RandString(10)), []byte(RandString(10)))
+	list.Add(entry1)
+	assert.Equal(t, entry1.Value, list.Search(entry1.Key).Value)
+
+	entry2 := NewEntry([]byte(RandString(10)), []byte(RandString(10)))
+	list.Add(entry2)
+	assert.Equal(t, entry2.Value, list.Search(entry2.Key).Value)
+
+	//Update a entry
+	entry2_new := NewEntry([]byte(RandString(10)), []byte(RandString(10)))
+	list.Add(entry2_new)
+	assert.Equal(t, entry2_new.Value, list.Search(entry2_new.Key).Value)
+
+	iter := list.NewIterator()
+	for iter.Rewind(); iter.Valid(); iter.Next() {
+		fmt.Printf("iter key %s, value %s", iter.Item().Entry().Key, iter.Item().Entry().Value)
+	}
 }

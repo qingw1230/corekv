@@ -70,9 +70,6 @@ func (mt *memTable) close() error {
 	if err := mt.wal.Close(); err != nil {
 		return err
 	}
-	if err := mt.sl.Close(); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -82,19 +79,27 @@ func (mt *memTable) set(e *utils.Entry) error {
 	if err := mt.wal.Write(e); err != nil {
 		return err
 	}
-	if err := mt.sl.Add(e); err != nil {
-		return err
-	}
+	mt.sl.Add(e)
 	return nil
 }
 
 // Get 从跳表中检索数据
 func (mt *memTable) Get(key []byte) (*utils.Entry, error) {
-	return mt.sl.Search(key), nil
+	vs := mt.sl.Search(key)
+
+	e := &utils.Entry{
+		Key:       key,
+		Value:     vs.Value,
+		ExpiresAt: vs.ExpiresAt,
+		Meta:      vs.Meta,
+		Version:   vs.Version,
+	}
+
+	return e, nil
 }
 
 func (m *memTable) Size() int64 {
-	return m.sl.Size()
+	return m.sl.MemSize()
 }
 
 // recovery 根据 wal 文件恢复跳表结构
@@ -133,7 +138,7 @@ func (lsm *LSM) recovery() (*memTable, []*memTable) {
 	for _, fid := range fids {
 		mt, err := lsm.OpenMemTable(fid)
 		utils.CondPanic(err != nil, err)
-		if mt.sl.Size() == 0 {
+		if mt.sl.MemSize() == 0 {
 			continue
 		}
 		imms = append(imms, mt)
@@ -166,6 +171,7 @@ func (mt *memTable) replayFunction(opt *Options) func(*utils.Entry, *utils.Value
 		if ts := utils.ParseTs(e.Key); ts > mt.maxVersion {
 			mt.maxVersion = ts
 		}
-		return mt.sl.Add(e)
+		mt.sl.Add(e)
+		return nil
 	}
 }

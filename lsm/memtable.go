@@ -41,7 +41,7 @@ func (lsm *LSM) NewMemTable() *memTable {
 	return &memTable{
 		lsm: lsm,
 		wal: file.OpenWalFile(fileOpt),
-		sl:  utils.NewSkipList(int64(1 << 20)),
+		sl:  utils.NewSkipList(int64(2 << 20)),
 	}
 }
 

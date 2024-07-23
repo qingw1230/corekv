@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	maxHeight      = 20
+	maxHeight      = 12
 	heightIncrease = math.MaxUint32 / 3
 )
 
@@ -105,7 +105,7 @@ func (n *node) key(arena *Arena) []byte {
 }
 
 // setValue 原子地更新 node 的 value
-func (n *node) setValue(arena *Arena, vo uint64) {
+func (n *node) setValue(_ *Arena, vo uint64) {
 	atomic.StoreUint64(&n.value, vo)
 }
 
@@ -364,7 +364,7 @@ func (s *SkipList) Search(key []byte) ValueStruct {
 // NewIterator returns a skiplist iterator.  You have to Close() the iterator.
 func (s *SkipList) NewIterator() Iterator {
 	s.IncrRef()
-	return &SkipListIterator{list: s}
+	return &SkipListIterator{sl: s}
 }
 
 // MemSize returns the size of the SkipList in terms of how much memory is used within its internal
@@ -376,8 +376,8 @@ func (s *SkipList) MemSize() int64 {
 // Iterator is an iterator over skiplist object. For new objects, you just
 // need to initialize Iterator.list.
 type SkipListIterator struct {
-	list *SkipList
-	n    *node
+	sl *SkipList
+	n  *node // 当前指向的 node
 }
 
 func (s *SkipListIterator) Rewind() {
@@ -396,7 +396,7 @@ func (s *SkipListIterator) Item() Item {
 
 // Close frees the resources held by the iterator
 func (s *SkipListIterator) Close() error {
-	s.list.DecrRef()
+	s.sl.DecrRef()
 	return nil
 }
 
@@ -405,13 +405,13 @@ func (s *SkipListIterator) Valid() bool { return s.n != nil }
 
 // Key returns the key at the current position.
 func (s *SkipListIterator) Key() []byte {
-	return s.list.arena.getKey(s.n.keyOffset, s.n.keySize)
+	return s.sl.arena.getKey(s.n.keyOffset, s.n.keySize)
 }
 
 // Value returns value.
 func (s *SkipListIterator) Value() ValueStruct {
 	valOffset, valSize := s.n.getValueOffset()
-	return s.list.arena.getVal(valOffset, valSize)
+	return s.sl.arena.getVal(valOffset, valSize)
 }
 
 // ValueUint64 returns the uint64 value of the current node.
@@ -422,35 +422,35 @@ func (s *SkipListIterator) ValueUint64() uint64 {
 // Next advances to the next position.
 func (s *SkipListIterator) Next() {
 	AssertTrue(s.Valid())
-	s.n = s.list.getNext(s.n, 0)
+	s.n = s.sl.getNext(s.n, 0)
 }
 
 // Prev advances to the previous position.
 func (s *SkipListIterator) Prev() {
 	AssertTrue(s.Valid())
-	s.n, _ = s.list.findNear(s.Key(), true, false) // find <. No equality allowed.
+	s.n, _ = s.sl.findNear(s.Key(), true, false) // find <. No equality allowed.
 }
 
 // Seek advances to the first entry with a key >= target.
 func (s *SkipListIterator) Seek(target []byte) {
-	s.n, _ = s.list.findNear(target, false, true) // find >=.
+	s.n, _ = s.sl.findNear(target, false, true) // find >=.
 }
 
 // SeekForPrev finds an entry with key <= target.
 func (s *SkipListIterator) SeekForPrev(target []byte) {
-	s.n, _ = s.list.findNear(target, true, true) // find <=.
+	s.n, _ = s.sl.findNear(target, true, true) // find <=.
 }
 
 // SeekToFirst seeks position at the first entry in list.
 // Final state of iterator is Valid() iff list is not empty.
 func (s *SkipListIterator) SeekToFirst() {
-	s.n = s.list.getNext(s.list.getHead(), 0)
+	s.n = s.sl.getNext(s.sl.getHead(), 0)
 }
 
 // SeekToLast seeks position at the last entry in list.
 // Final state of iterator is Valid() iff list is not empty.
 func (s *SkipListIterator) SeekToLast() {
-	s.n = s.list.findLast()
+	s.n = s.sl.findLast()
 }
 
 // UniIterator is a unidirectional memtable iterator. It is a thin wrapper around

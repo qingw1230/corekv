@@ -1,3 +1,5 @@
-.vscode
+.vscode/
 tmp/
 work_test/
+
+debug.test

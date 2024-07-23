@@ -12,7 +12,7 @@ type Options struct {
 	BloomFalsePositive float64
 
 	NumCompactors       int   // 执行 compact 的协程数
-	BaseLevelSize       int64 // 层大小基础大小，默认 10G
+	BaseLevelSize       int64 // 层大小基础大小
 	LevelSizeMultiplier int   // 各层大小比例，默认为 10
 	BaseTableSize       int64 // sst 的基础大小
 	TableSizeMultiplier int   // 各层 sst 文件大小比例

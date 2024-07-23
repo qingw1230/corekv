@@ -42,7 +42,6 @@ func TestRecovery(t *testing.T) {
 		lsm := buildLSM()
 		baseTest(t, lsm, 10)
 	}
-	// 允许两次就能实现恢复
 	runTest(3, recovery)
 }
 
@@ -196,17 +195,14 @@ func TestCompact(t *testing.T) {
 	runTest(1, l0TOLMax, l0ToL0, nextCompact, maxToMax, parallerCompact)
 }
 
+// baseTest 向 LSM 树中添加 n 个 Entry
 func baseTest(t *testing.T, lsm *LSM, n int) {
-	e := &utils.Entry{
-		Key:       []byte("CRTS😁暗算MrGSBtL12345678"),
-		Value:     []byte("我草了"),
-		ExpiresAt: 0,
-	}
+	e := utils.BuildEntry()
 
 	lsm.Set(e)
 	for i := 1; i < n; i++ {
-		ee := utils.BuildEntry()
-		lsm.Set(ee)
+		ne := utils.BuildEntry()
+		lsm.Set(ne)
 	}
 	v, err := lsm.Get(e.Key)
 	utils.Panic(err)
@@ -220,6 +216,7 @@ func buildLSM() *LSM {
 	return lsm
 }
 
+// runTest 运行 n 次 testFunList 中的每个函数
 func runTest(n int, testFunList ...func()) {
 	for _, f := range testFunList {
 		for i := 0; i < n; i++ {
@@ -261,6 +258,7 @@ func tricky(tables []*table) {
 	}
 }
 
+// clearDir 清空工作目录
 func clearDir() {
 	_, err := os.Stat(opt.WorkDir)
 	if err == nil {

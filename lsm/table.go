@@ -160,6 +160,8 @@ func (t *table) block(idx int) (*block, error) {
 	entriesIndexStart := readPos - (numEntries * 4)
 	entriesIndexEnd := readPos
 	b.entryOffsets = utils.BytesToU32Slice(b.data[entriesIndexStart:entriesIndexEnd])
+	// 需要根据该值读取 data 数据
+	b.entriesIndexStart = entriesIndexStart
 
 	// 将当前 block 块信息添加到缓存中
 	t.lm.cache.blocks.Set(key, b)

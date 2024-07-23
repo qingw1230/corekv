@@ -43,17 +43,17 @@ var (
 )
 
 /**
-SSTableMaxSz:        1024,
-MemTableSize:        1024,
-BlockSize:           1024,
-BloomFalsePositive:  0,
+SSTableMaxSz:        2 << 20,
+MemTableSize:        2 << 20,
+BlockSize:           4 * 1024,
+BloomFalsePositive:  0.01,
 BaseLevelSize:       10 << 20,
 LevelSizeMultiplier: 10,
 BaseTableSize:       2 << 20,
 TableSizeMultiplier: 2,
 NumLevelZeroTables:  15,
 MaxLevelNum:         7,
-NumCompactors:       3,
+NumCompactors:       1,
 */
 
 func Open(opt *Options) *DB {
@@ -64,11 +64,11 @@ func Open(opt *Options) *DB {
 		WorkDir:             opt.WorkDir,
 		MemTableSize:        opt.MemTableSize,
 		SSTableMaxSz:        opt.SSTableMaxSz,
-		BlockSize:           8 * 1024,
-		BloomFalsePositive:  0, //0.01,
+		BlockSize:           4 * 1024,
+		BloomFalsePositive:  0.01,
 		BaseLevelSize:       10 << 20,
 		LevelSizeMultiplier: 10,
-		BaseTableSize:       5 << 20,
+		BaseTableSize:       2 << 20,
 		TableSizeMultiplier: 2,
 		NumLevelZeroTables:  15,
 		MaxLevelNum:         7,

@@ -63,8 +63,8 @@ func (wf *WalFile) Write(e *utils.Entry) error {
 	wf.rw.Lock()
 	defer wf.rw.Unlock()
 	len := utils.WalCodec(wf.buf, e)
-	buf := wf.buf.Bytes()
-	utils.Panic(wf.f.AppendBuffer(wf.writeAt, buf))
+	data := wf.buf.Bytes()
+	utils.Panic(wf.f.AppendBuffer(wf.writeAt, data))
 	wf.writeAt += uint32(len)
 	return nil
 }

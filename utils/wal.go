@@ -56,7 +56,7 @@ func (h *WalHeader) Decode(reader *HashReader) (int, error) {
 
 // WalCodec 将 entry 编码后写入 buf
 // WAL 格式 | header | key | value | checksum |
-// header 格式 | KeyLen | ValueLen | ExpiresAt |
+// header 格式 | KeyLen | ValueLen | Meta | ExpiresAt |
 func WalCodec(buf *bytes.Buffer, e *Entry) int {
 	buf.Reset()
 	h := WalHeader{

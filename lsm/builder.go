@@ -26,9 +26,9 @@ type tableBuilder struct {
 }
 
 // block sst 文件的一个 block 块
-// block 结构 | kv_data | offsets | offset_len | checksum | checksum_len |
-// kv data 结构 | header | diffkey | expires_at | value |
-// header 结构 | overlap | diff |
+// block 格式 | kv_data | offsets | offset_len | checksum | checksum_len |
+// kv data 格式 | header | diffkey | expires_at | value |
+// header 格式 | overlap | diff |
 type block struct {
 	offset            int      // 当前 block 在 sst 文件的偏移
 	checksum          []byte   // 当前 block 的校验和（kv & offsets）
@@ -42,12 +42,12 @@ type block struct {
 }
 
 // buildData builder done 生成的数据结构体
-// sst 结构 | block1 | block2 | index_data | index_len | checksum | checksum_len |
-// sst index 结构 | block_offsets | bloom_filter | max_version | key_count |
-// block offset 结构 | key | offset | len |
+// sst 格式 | block1 | block2 | index_data | index_len | checksum | checksum_len |
+// sst index 格式 | block_offsets | bloom_filter | max_version | key_count |
+// block offset 格式 | key | offset | len |
 type buildData struct {
 	blockList []*block // 所有 block 列表
-	index     []byte   // 序列化后的索引数据
+	index     []byte   // pb 序列化后的索引数据
 	checksum  []byte   // 索引的校验和
 	size      int      // 该 builder 总长度
 }
@@ -304,12 +304,12 @@ func (tb *tableBuilder) done() buildData {
 // buildIndex 使用 tb 数据构建它的索引
 func (tb *tableBuilder) buildIndex(bloom []byte) ([]byte, uint32) {
 	tableIndex := &pb.TableIndex{}
+	tableIndex.Offsets = tb.writeBlockOffsets(tableIndex)
 	if len(bloom) > 0 {
 		tableIndex.BloomFilter = bloom
 	}
-	tableIndex.KeyCount = tb.keyCount
 	tableIndex.MaxVersion = tb.maxVersion
-	tableIndex.Offsets = tb.writeBlockOffsets(tableIndex)
+	tableIndex.KeyCount = tb.keyCount
 
 	var dataSize uint32
 	for i := range tb.blockList {

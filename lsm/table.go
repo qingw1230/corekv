@@ -17,7 +17,7 @@ import (
 )
 
 type table struct {
-	sst *file.SSTable
+	sst *file.SSTable // sst 文件
 	lm  *levelManager // 所属 levelManager
 	fid uint64        // sst 文件标识
 	ref int32         // 引用计数，用于文件垃圾收集
@@ -62,6 +62,7 @@ func openTable(lm *levelManager, tableName string, builder *tableBuilder) *table
 		utils.Err(err)
 		return nil
 	}
+	// 默认是降序
 	it := t.NewIterator(&utils.Options{})
 	defer it.Close()
 	it.Rewind()
@@ -140,8 +141,7 @@ func (t *table) block(idx int) (*block, error) {
 	var err error
 	// 读取该 block 块的所有数据
 	if b.data, err = t.read(b.offset, int(ko.GetLen())); err != nil {
-		return nil, errors.Wrapf(err, "faild to read from sst: %d at offset: %d, len: %d",
-			t.sst.FID(), b.offset, ko.GetLen())
+		return nil, errors.Wrapf(err, "faild to read from sst: %d at offset: %d, len: %d", t.sst.FID(), b.offset, ko.GetLen())
 	}
 
 	// 读出校验和及其长度
@@ -310,8 +310,7 @@ func (it *tableIterator) Seek(key []byte) {
 	var ko pb.BlockOffset
 	// idx block.minKey > key 的索引
 	idx := sort.Search(len(it.t.sst.Indexs().GetOffsets()), func(idx int) bool {
-		utils.CondPanic(!it.t.offsets(&ko, idx),
-			fmt.Errorf("tableIterator.Seek idx < 0 || idx > len(index.GetOffsets())"))
+		utils.CondPanic(!it.t.offsets(&ko, idx), fmt.Errorf("tableIterator.Seek idx < 0 || idx >= len(index.GetOffsets())"))
 		return utils.CompareKeys(ko.GetKey(), key) > 0
 	})
 

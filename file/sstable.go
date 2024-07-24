@@ -108,6 +108,7 @@ func (s *SSTable) SetMaxKey(maxKey []byte) {
 	s.maxKey = maxKey
 }
 
+// Indexs 获取该 sst 文件的索引
 func (s *SSTable) Indexs() *pb.TableIndex {
 	return s.idxTables
 }

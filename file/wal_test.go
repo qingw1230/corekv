@@ -8,15 +8,15 @@ import (
 )
 
 var (
-	opt = &Options{
+	walOpt = &Options{
 		FileName: "../work_test/wal_test.wal",
 		MaxSz:    1024,
 	}
 )
 
-func TestWrite(t *testing.T) {
+func TestWALWrite(t *testing.T) {
 	clearDir()
-	wf := OpenWalFile(opt)
+	wf := OpenWalFile(walOpt)
 	e := utils.BuildEntry()
 	wf.Write(e)
 }

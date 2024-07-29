@@ -25,12 +25,15 @@ type ManifestFile struct {
 	delRewriteThreshold int
 }
 
+// Manifest 保存 sst 文件层级关系
 type Manifest struct {
 	// Levels level -> table sst 每层有哪些 sst 文件
 	Levels []levelManifest
 	// Tables 用于快速查找一个 sst 文件在哪一层
-	Tables    map[uint64]TableManifest
+	Tables map[uint64]TableManifest
+	// Creations sst 文件创建次数
 	Creations int
+	// Deletions sst 文件删除次数
 	Deletions int
 }
 
@@ -98,7 +101,7 @@ func OpenManifestFile(opt *Options) (*ManifestFile, error) {
 }
 
 // ReplayManifestFile 根据 MANIFEST 文件重放内存中的 *Manifest
-// 返回重放的 *Manifest，MANIFEST 文件的偏移以及 error
+// 返回重放生成的 *Manifest，MANIFEST 文件的偏移以及 err
 func ReplayManifestFile(fp *os.File) (*Manifest, int64, error) {
 	r := &bufReader{
 		reader: bufio.NewReader(fp),
@@ -195,7 +198,7 @@ func applyManifestChange(build *Manifest, change *pb.ManifestChange) error {
 	return nil
 }
 
-// 创建一个空的 Manifest 结构体
+// createManifest 创建一个空的 Manifest 结构体
 func createManifest() *Manifest {
 	return &Manifest{
 		Levels: make([]levelManifest, 0),
@@ -234,7 +237,7 @@ func newCreateChange(id uint64, level int, checksum []byte) *pb.ManifestChange {
 	}
 }
 
-// rewrite 必须在持有 appendLock 时调用，重写 manifest 文件
+// rewrite 必须在持有 appendLock 时调用，用当前状态重写 manifest 文件
 func (mf *ManifestFile) rewrite() error {
 	if err := mf.Close(); err != nil {
 		return err
@@ -250,8 +253,8 @@ func (mf *ManifestFile) rewrite() error {
 }
 
 // helpRewrite 用 Manifest 保存的当前状态重写 manifest 文件，修改的是磁盘上的文件
-// manifest 格式 | magic | version | changes | changes |
-// changes 格式 | len | crc32 | ManifestChangeSet |
+// manifest 格式 | magic | version | changes1 | changes2 |
+// changes 格式 | change_len | checksum | ManifestChangeSet |
 func helpRewrite(dir string, m *Manifest) (*os.File, int, error) {
 	// 打开一个用于重写的 manifest 文件
 	rewritePath := filepath.Join(dir, utils.ManifestRewriteFilename)

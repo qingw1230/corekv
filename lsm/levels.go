@@ -107,10 +107,10 @@ func (lm *levelManager) build() error {
 
 	var maxFID uint64
 	// 为各层添加管理的 sst 文件
-	for fID, tableInfo := range manifest.Tables {
-		fileName := utils.FileNameSSTable(lm.opt.WorkDir, fID)
-		if fID > maxFID {
-			maxFID = fID
+	for FID, tableInfo := range manifest.Tables {
+		fileName := utils.FileNameSSTable(lm.opt.WorkDir, FID)
+		if FID > maxFID {
+			maxFID = FID
 		}
 		t := openTable(lm, fileName, nil)
 		lm.levels[tableInfo.Level].add(t)

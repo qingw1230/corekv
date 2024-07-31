@@ -77,7 +77,7 @@ func (lm *levelManager) runCompacter(id int) {
 		return
 	}
 
-	// 每 50ms 执行一次压缩
+	// 每 50s 执行一次压缩
 	ticker := time.NewTicker(50000 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -146,7 +146,7 @@ func (lm *levelManager) run(id int, p compactionPriority) bool {
 	return false
 }
 
-// doCompact 选项当前层的某些 sst 文件压缩到目标层
+// doCompact 选择当前层的某些 sst 文件压缩到目标层
 func (lm *levelManager) doCompact(id int, p compactionPriority) error {
 	if p.t.baseLevel == 0 {
 		p.t = lm.levelTargets()
@@ -832,6 +832,7 @@ func (lm *levelManager) subcompact(it utils.Iterator, kr keyRange, cd compactDef
 		}
 	}
 
+	// addKeys 不断向 builder 添加数据
 	addKeys := func(builder *tableBuilder) {
 		var tableKr keyRange
 		for ; it.Valid(); it.Next() {

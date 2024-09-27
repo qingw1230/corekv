@@ -3,8 +3,9 @@ package utils
 import (
 	"bytes"
 	"math/rand"
-	"sync"
+	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 const (
@@ -16,8 +17,7 @@ type SkipList struct {
 	head     *Element // head 跳表的头节点
 	rand     *rand.Rand
 	maxLevel int
-	length   int // length 跳表中节点数量
-	rw       sync.RWMutex
+	length   int64 // length 跳表中节点数量
 }
 
 func newSkipList() *SkipList {
@@ -49,54 +49,70 @@ func newElement(key, value []byte, level int) *Element {
 	}
 }
 
-func (sl *SkipList) Add(data *Entry) error {
-	sl.rw.Lock()
-	defer sl.rw.Unlock()
+func (e *Element) casNextPointer(h int, old, val *Element) bool {
+	ptr := (*unsafe.Pointer)(unsafe.Pointer(&e.levels[h]))
+	oldPtr := unsafe.Pointer(old)
+	newPtr := unsafe.Pointer(val)
+	return atomic.CompareAndSwapPointer(ptr, oldPtr, newPtr)
+}
 
-	prevElem := sl.head
-	var prevElems [DefaultMaxLevel]*Element
-
-	for i := len(sl.head.levels) - 1; i >= 0; {
-		prevElems[i] = prevElem
-		for nextElem := prevElem.levels[i]; nextElem != nil; nextElem = prevElem.levels[i] {
-			comp := bytes.Compare(data.Key, nextElem.Key)
-			if comp <= 0 {
-				if comp == 0 {
-					nextElem.Value = data.Value
-					return nil
-				}
-				break
-			}
-
-			prevElem = nextElem
-			prevElems[i] = prevElem
+// findSpliceForLevel 给定一个 key 和它前面的节点，找到在指定层应该插入的位置
+// 满足 beforeElem.Key < key < nextElem.Key
+func (sl *SkipList) findSpliceForLevel(key []byte, before *Element, level int) (*Element, *Element) {
+	for {
+		nextNode := before.levels[level]
+		// 该节点应该插入到这层链表的末尾
+		if nextNode == nil {
+			return before, nil
 		}
+		comp := bytes.Compare(key, nextNode.Key)
+		// 已经有相同的 key 了，此时原地更新
+		if comp == 0 {
+			return nextNode, nextNode
+		}
+		if comp < 0 {
+			return before, nextNode
+		}
+		// 继续在当前层找
+		before = nextNode
+	}
+}
 
-		topLevelVal := prevElem.levels[i]
-		for i--; i >= 0 && prevElem.levels[i] == topLevelVal; i-- {
-			// 下一层值与当前层值相同，再到下一层
-			prevElems[i] = prevElem
+func (sl *SkipList) Add(e *Entry) {
+	key, value := e.Key, e.Value
+	var prev [DefaultMaxLevel + 1]*Element
+	var next [DefaultMaxLevel + 1]*Element
+	prev[DefaultMaxLevel] = sl.head
+
+	for i := DefaultMaxLevel - 1; i >= 0; i-- {
+		prev[i], next[i] = sl.findSpliceForLevel(key, prev[i+1], i)
+		if prev[i] == next[i] {
+			prev[i].Value = value
+			return
 		}
 	}
 
 	level := sl.randLevel()
-	elem := newElement(data.Key, data.Value, level)
+	data := newElement(key, value, level)
 
 	for i := 0; i < level; i++ {
-		// elem->next = preNode->next
-		elem.levels[i] = prevElems[i].levels[i]
-		// preNode->next = elem
-		prevElems[i].levels[i] = elem
+		for {
+			data.levels[i] = next[i]
+			if prev[i].casNextPointer(i, next[i], data) {
+				break
+			}
+			prev[i], next[i] = sl.findSpliceForLevel(key, prev[i+1], i)
+			if prev[i] == next[i] {
+				prev[i].Value = value
+				return
+			}
+		}
 	}
 
-	sl.length++
-	return nil
+	atomic.AddInt64(&sl.length, 1)
 }
 
 func (sl *SkipList) Search(key []byte) *Entry {
-	sl.rw.RLock()
-	defer sl.rw.RUnlock()
-
 	if sl.length == 0 {
 		return nil
 	}

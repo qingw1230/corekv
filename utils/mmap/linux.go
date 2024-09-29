@@ -20,8 +20,8 @@ func mmap(fd *os.File, writable bool, sz int64) ([]byte, error) {
 
 func mremap(data []byte, sz int) ([]byte, error) {
 	const MREMAP_MAYMOVE = 0x1
-
-	header := (*reflect.SliceHeader)(unsafe.Pointer(&data))
+	// &data 取的是局部变量的地址，不是切片内容的地址
+	header := (*reflect.SliceHeader)(unsafe.Pointer(&data[0]))
 	mmapAddr, _, errno := unix.Syscall6(
 		unix.SYS_MREMAP,
 		header.Data,
@@ -50,7 +50,7 @@ func munmap(data []byte) error {
 	// 如果我们使用 mremap，这个列表不会更新，因此需要自己调用 munmap
 	_, _, errno := unix.Syscall(
 		unix.SYS_MUNMAP,
-		uintptr(unsafe.Pointer(&data)),
+		uintptr(unsafe.Pointer(&data[0])),
 		uintptr(len(data)),
 		0,
 	)

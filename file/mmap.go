@@ -133,6 +133,7 @@ func (m *MmapFile) AllocateSlice(sz, offset int) ([]byte, int, error) {
 	return m.Data[start : start+sz], start + sz, nil
 }
 
+// AppendBuffer 向映射文件 offset 偏移处追加数据
 func (m *MmapFile) AppendBuffer(offset uint32, buf []byte) error {
 	sz := len(m.Data)
 	needSize := len(buf)
@@ -181,6 +182,7 @@ func (m *MmapFile) Delete() error {
 	return os.Remove(m.Fd.Name())
 }
 
+// Close sync + munmap + close
 func (m *MmapFile) Close() error {
 	if m.Fd == nil {
 		return nil

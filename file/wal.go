@@ -68,6 +68,7 @@ func (wf *WalFile) Write(e *utils.Entry) error {
 	return nil
 }
 
+// Iterator 迭代 wal 文件，对文件中每个 Entry 执行 fn 函数
 func (wf *WalFile) Iterator(readOnly bool, offset uint32, fn utils.LogEntry) (uint32, error) {
 	reader := bufio.NewReader(wf.f.NewReader(int(offset)))
 	read := SafeRead{

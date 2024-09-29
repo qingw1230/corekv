@@ -9,7 +9,7 @@ import (
 )
 
 func TestSkipList_Add(t *testing.T) {
-	sl := newSkipList()
+	sl := NewSkipList()
 	cnt := 100000
 	num := 4
 	var m sync.Map
@@ -37,7 +37,7 @@ func TestSkipList_Add(t *testing.T) {
 }
 
 func TestSkipList_Add2(t *testing.T) {
-	sl := newSkipList()
+	sl := NewSkipList()
 	cnt := 100000
 	num := 4
 	var wg sync.WaitGroup
@@ -60,7 +60,7 @@ func TestSkipList_Add2(t *testing.T) {
 }
 
 func BenchmarkSkipList_Add(b *testing.B) {
-	sl := newSkipList()
+	sl := NewSkipList()
 	cnt := 100000
 
 	b.RunParallel(func(pb *testing.PB) {

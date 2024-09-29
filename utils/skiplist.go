@@ -20,7 +20,7 @@ type SkipList struct {
 	length   int64 // length 跳表中节点数量
 }
 
-func newSkipList() *SkipList {
+func NewSkipList() *SkipList {
 	source := rand.NewSource(time.Now().UnixNano())
 	return &SkipList{
 		head: &Element{
@@ -151,4 +151,8 @@ func (sl *SkipList) randLevel() int {
 		}
 	}
 	return sl.maxLevel
+}
+
+func (sl *SkipList) MemSize() int64 {
+	return sl.length
 }

@@ -16,10 +16,10 @@ func TestSkipList_Add(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(num)
 
-	strsTable := make([][][]byte, num)
+	strsTable := make([][]string, num)
 
 	for i := 0; i < num; i++ {
-		strsTable[i] = generateData(cnt)
+		strsTable[i] = GenerateStrs(cnt)
 	}
 
 	for i := 0; i < num; i++ {
@@ -43,10 +43,10 @@ func TestSkipList_Add2(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(num)
 
-	strsTable := make([][][]byte, num)
+	strsTable := make([][]string, num)
 
 	for i := 0; i < num; i++ {
-		strsTable[i] = generateData(cnt)
+		strsTable[i] = GenerateStrs(cnt)
 	}
 
 	for i := 0; i < num; i++ {
@@ -66,7 +66,7 @@ func BenchmarkSkipList_Add(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			b.StopTimer()
-			strs := generateData(cnt)
+			strs := GenerateStrs(cnt)
 			b.StartTimer()
 			addData(sl, strs)
 		}
@@ -96,21 +96,12 @@ func verifyCorrectness(sl *SkipList, m *sync.Map) bool {
 	return true
 }
 
-func addData(sl *SkipList, strs [][]byte) {
+func addData(sl *SkipList, strs []string) {
 	for i := 0; i < len(strs); i++ {
 		entry := &Entry{
-			Key:   strs[i],
-			Value: strs[i],
+			Key:   []byte(strs[i]),
+			Value: []byte(strs[i]),
 		}
 		sl.Add(entry)
 	}
-}
-
-func generateData(cnt int) [][]byte {
-	strs := make([][]byte, cnt)
-	for i := 0; i < cnt; i++ {
-		str := RandStringRandomLength(100, true)
-		strs[i] = []byte(str)
-	}
-	return strs
 }

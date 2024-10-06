@@ -21,7 +21,7 @@ func mmap(fd *os.File, writable bool, sz int64) ([]byte, error) {
 func mremap(data []byte, sz int) ([]byte, error) {
 	const MREMAP_MAYMOVE = 0x1
 	// &data 取的是局部变量的地址，不是切片内容的地址
-	header := (*reflect.SliceHeader)(unsafe.Pointer(&data[0]))
+	header := (*reflect.SliceHeader)(unsafe.Pointer(&data))
 	mmapAddr, _, errno := unix.Syscall6(
 		unix.SYS_MREMAP,
 		header.Data,

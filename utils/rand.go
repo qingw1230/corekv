@@ -28,6 +28,28 @@ func BuildEntry() *Entry {
 	}
 }
 
+func GenerateEntries(cnt int) []*Entry {
+	strs := GenerateStrs(cnt)
+	table := make([]*Entry, cnt)
+	for i := 0; i < cnt; i++ {
+		e := &Entry{
+			Key:   []byte(strs[i]),
+			Value: []byte(strs[i]),
+		}
+		table[i] = e
+	}
+	return table
+}
+
+func GenerateStrs(cnt int) []string {
+	strs := make([]string, cnt)
+	for i := 0; i < cnt; i++ {
+		str := RandStringRandomLength(100, true)
+		strs[i] = str
+	}
+	return strs
+}
+
 // RandStringRandomLength 生成随机长度的字符串，len 为原始字符串最大长度
 func RandStringRandomLength(len int, appendTimestamp bool) string {
 	len = Intn(len) + 1

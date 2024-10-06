@@ -80,7 +80,15 @@ func (mt *memTable) set(e *utils.Entry) error {
 }
 
 func (mt *memTable) Get(key []byte) (*utils.Entry, error) {
-	e := mt.sl.Search(key)
+	vs := mt.sl.Search(key)
+
+	e := &utils.Entry{
+		Key:       key,
+		Value:     vs.Value,
+		ExpiresAt: vs.ExpiresAt,
+		Meta:      vs.Meta,
+		Version:   vs.Version,
+	}
 	return e, nil
 }
 

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"fmt"
 	"math/rand"
 	"sync/atomic"
 	"time"
@@ -25,7 +26,7 @@ func NewSkipList() *SkipList {
 	return &SkipList{
 		head: &Element{
 			Key:    nil,
-			Value:  nil,
+			V:      ValueStruct{},
 			levels: make([]*Element, DefaultMaxLevel),
 		},
 		rand:     rand.New(source),
@@ -37,23 +38,100 @@ func NewSkipList() *SkipList {
 // Element 跳表节点
 type Element struct {
 	Key    []byte
-	Value  []byte
-	levels []*Element
+	V      ValueStruct
+	levels []*Element // 记录各层的下一节点
 }
 
-func newElement(key, value []byte, level int) *Element {
+func newElement(key []byte, v ValueStruct, level int) *Element {
 	return &Element{
 		Key:    key,
-		Value:  value,
+		V:      v,
 		levels: make([]*Element, level),
 	}
 }
 
+// casNextPointer 原子性地将 e.levels[h] 的指向从 old 修改为 val
 func (e *Element) casNextPointer(h int, old, val *Element) bool {
 	ptr := (*unsafe.Pointer)(unsafe.Pointer(&e.levels[h]))
 	oldPtr := unsafe.Pointer(old)
 	newPtr := unsafe.Pointer(val)
 	return atomic.CompareAndSwapPointer(ptr, oldPtr, newPtr)
+}
+
+func (sl *SkipList) getHead() *Element {
+	return sl.head
+}
+
+func (sl *SkipList) getNext(e *Element, height int) *Element {
+	return e.levels[height]
+}
+
+// findNear 找最接近 key 的节点
+// 若 less==True，找满足 node.Key < key 的最大的节点
+// 若 less==False，找满足 node.Key > key 的最小的节点
+func (sl *SkipList) findNear(key []byte, less, allowEqual bool) (*Element, bool) {
+	x := sl.getHead()
+	level := int(sl.getHeight() - 1)
+	for {
+		next := sl.getNext(x, level)
+		if next == nil {
+			// x.Key < key < end of list
+			if level > 0 {
+				// 去下一层找
+				level--
+				continue
+			}
+			if !less {
+				return nil, false
+			}
+			if x == sl.getHead() {
+				return nil, false
+			}
+			return x, false
+		}
+
+		nextKey := next.Key
+		comp := CompareKeys(key, nextKey)
+		if comp > 0 {
+			// x.Key < next.Key < key
+			// 在当前层继续找
+			x = next
+			continue
+		}
+		if comp == 0 {
+			if allowEqual {
+				if level > 0 {
+					// 继续向下找，以应对当前 key 正被修改的情况
+					level--
+					continue
+				}
+				return next, true
+			}
+			if !less {
+				return sl.getNext(next, 0), false
+			}
+			if level > 0 {
+				level--
+				continue
+			}
+			if x == sl.getHead() {
+				return nil, false
+			}
+			return x, false
+		}
+		// x.Key < key < next.Key
+		if level > 0 {
+			level--
+			continue
+		}
+		if !less {
+			return next, false
+		}
+		if x == sl.getHead() {
+			return nil, false
+		}
+		return x, false
+	} // for {
 }
 
 // findSpliceForLevel 给定一个 key 和它前面的节点，找到在指定层应该插入的位置
@@ -78,22 +156,32 @@ func (sl *SkipList) findSpliceForLevel(key []byte, before *Element, level int) (
 	}
 }
 
+// getHeight 获取跳表最大高度
+func (sl *SkipList) getHeight() int32 {
+	return int32(len(sl.getHead().levels))
+}
+
 func (sl *SkipList) Add(e *Entry) {
-	key, value := e.Key, e.Value
+	key, vs := e.Key, ValueStruct{
+		Meta:      e.Meta,
+		Value:     e.Value,
+		ExpiresAt: e.ExpiresAt,
+		Version:   e.Version,
+	}
 	var prev [DefaultMaxLevel + 1]*Element
 	var next [DefaultMaxLevel + 1]*Element
-	prev[DefaultMaxLevel] = sl.head
+	prev[DefaultMaxLevel] = sl.getHead()
 
 	for i := DefaultMaxLevel - 1; i >= 0; i-- {
 		prev[i], next[i] = sl.findSpliceForLevel(key, prev[i+1], i)
 		if prev[i] == next[i] {
-			prev[i].Value = value
+			prev[i].V = vs
 			return
 		}
 	}
 
 	level := sl.randLevel()
-	data := newElement(key, value, level)
+	data := newElement(key, vs, level)
 
 	for i := 0; i < level; i++ {
 		for {
@@ -103,7 +191,7 @@ func (sl *SkipList) Add(e *Entry) {
 			}
 			prev[i], next[i] = sl.findSpliceForLevel(key, prev[i+1], i)
 			if prev[i] == next[i] {
-				prev[i].Value = value
+				prev[i].V = vs
 				return
 			}
 		}
@@ -112,20 +200,21 @@ func (sl *SkipList) Add(e *Entry) {
 	atomic.AddInt64(&sl.length, 1)
 }
 
-func (sl *SkipList) Search(key []byte) *Entry {
+func (sl *SkipList) Search(key []byte) ValueStruct {
+	vs := ValueStruct{}
 	if sl.length == 0 {
-		return nil
+		return vs
 	}
 
-	prevElem := sl.head
-	i := len(sl.head.levels) - 1
+	prevElem := sl.getHead()
+	i := sl.getHeight() - 1
 
 	for i >= 0 {
 		for nextElem := prevElem.levels[i]; nextElem != nil; nextElem = prevElem.levels[i] {
 			comp := bytes.Compare(key, nextElem.Key)
 			if comp <= 0 {
 				if comp == 0 {
-					return newEntry(nextElem.Key, nextElem.Value)
+					return nextElem.V
 				}
 				// 当前层节点已经更大了，去下一层找
 				break
@@ -140,7 +229,7 @@ func (sl *SkipList) Search(key []byte) *Entry {
 			// 下一层值与当前层值相同，再到下一层
 		}
 	}
-	return nil
+	return vs
 }
 
 // randLevel 生成新节点的高度
@@ -155,4 +244,60 @@ func (sl *SkipList) randLevel() int {
 
 func (sl *SkipList) MemSize() int64 {
 	return sl.length
+}
+
+func (sl *SkipList) PrintSkipList() {
+	for si := sl.NewIterator(); si.Valid(); si.Next() {
+		fmt.Print(string(si.Item().Entry().Key))
+		fmt.Print(" ")
+		fmt.Println(string(si.Item().Entry().Value))
+	}
+}
+
+type SkipListIterator struct {
+	sl *SkipList
+	e  *Element
+}
+
+func (sl *SkipList) NewIterator() Iterator {
+	return &SkipListIterator{sl: sl, e: sl.getHead()}
+}
+
+func (si *SkipListIterator) Next() {
+	si.e = si.e.levels[0]
+}
+
+func (si *SkipListIterator) Valid() bool {
+	return si.e != nil
+}
+
+func (si *SkipListIterator) Item() Item {
+	vs := si.Value()
+	return &Entry{
+		Key:       si.Key(),
+		Value:     vs.Value,
+		ExpiresAt: vs.ExpiresAt,
+		Meta:      vs.Meta,
+		Version:   vs.Version,
+	}
+}
+
+func (si *SkipListIterator) Rewind() {
+	si.e = si.sl.getHead().levels[0]
+}
+
+func (si *SkipListIterator) Seek(target []byte) {
+	si.e, _ = si.sl.findNear(target, false, true)
+}
+
+func (si *SkipListIterator) Close() error {
+	return nil
+}
+
+func (si *SkipListIterator) Key() []byte {
+	return si.e.Key
+}
+
+func (si *SkipListIterator) Value() ValueStruct {
+	return si.e.V
 }

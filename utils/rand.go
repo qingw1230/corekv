@@ -12,13 +12,29 @@ var (
 	mu sync.Mutex
 )
 
+const (
+	timestampLen = 13
+)
+
+// BuildEntry 构建一个随机的 Entry 对象
+func BuildEntry() *Entry {
+	key := []byte(RandStringWithLength(16, true))
+	value := []byte(RandStringWithLength(128, false))
+	expiresAt := uint64(time.Now().Add(12*time.Hour).UnixNano() / 1e6)
+	return &Entry{
+		Key:       key,
+		Value:     value,
+		ExpiresAt: expiresAt,
+	}
+}
+
 // RandStringRandomLength 生成随机长度的字符串，len 为原始字符串最大长度
 func RandStringRandomLength(len int, appendTimestamp bool) string {
 	len = Intn(len) + 1
 	return RandStringWithLength(len, appendTimestamp)
 }
 
-// RandStringWithLength 生成指定长度的字符串
+// RandStringWithLength 生成指定长度的字符串，timestamp 为 13 位毫位秒级时间戳
 func RandStringWithLength(len int, appendTimestamp bool) string {
 	bytes := make([]byte, len)
 	for i := 0; i < len; i++ {
@@ -29,7 +45,7 @@ func RandStringWithLength(len int, appendTimestamp bool) string {
 	str := string(bytes)
 
 	if appendTimestamp {
-		now := time.Now().UnixNano()
+		now := time.Now().UnixMilli()
 		timestampStr := strconv.FormatInt(now, 10)
 		str += timestampStr
 	}

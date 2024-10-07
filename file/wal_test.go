@@ -24,7 +24,7 @@ func TestWAL_Write(t *testing.T) {
 	wf.Write(e)
 }
 
-func TestWALCheckWAL(t *testing.T) {
+func TestCheckWAL(t *testing.T) {
 	clearDir(walOpt)
 	wf := OpenWalFile(walOpt)
 	entries := utils.GenerateEntries(100000)

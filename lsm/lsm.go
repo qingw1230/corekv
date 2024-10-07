@@ -10,4 +10,5 @@ type LSM struct {
 	memTable   *memTable
 	immutables []*memTable
 	lm         *levelManager
+	maxMemFID  uint64
 }

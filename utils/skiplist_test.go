@@ -2,8 +2,10 @@ package utils
 
 import (
 	"bytes"
+	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -38,25 +40,30 @@ func TestSkipList_Add(t *testing.T) {
 
 func TestSkipList_Add2(t *testing.T) {
 	sl := NewSkipList()
-	cnt := 100000
+	cnt := 100_000
 	num := 4
 	var wg sync.WaitGroup
 	wg.Add(num)
 
-	strsTable := make([][]string, num)
-
+	entriesTable := make([][]*Entry, num)
 	for i := 0; i < num; i++ {
-		strsTable[i] = GenerateStrs(cnt)
+		entriesTable[i] = GenerateEntries(cnt)
 	}
+
+	time1 := time.Now().UnixMilli()
 
 	for i := 0; i < num; i++ {
 		go func(i int) {
-			addData(sl, strsTable[i])
+			for _, e := range entriesTable[i] {
+				sl.Add(e)
+			}
 			wg.Done()
 		}(i)
 	}
 
 	wg.Wait()
+	time2 := time.Now().UnixMilli()
+	fmt.Println(time2 - time1)
 }
 
 func BenchmarkSkipList_Add(b *testing.B) {

@@ -27,7 +27,7 @@ type memTable struct {
 }
 
 func (lsm *LSM) NewMemTable() *memTable {
-	newFID := atomic.AddUint64(&lsm.lm.maxFID, 1)
+	newFID := atomic.AddUint64(&lsm.maxMemFID, 1)
 	fileOpt := &file.Options{
 		FID:      newFID,
 		FileName: mtFilePath(lsm.option.WorkDir, newFID),

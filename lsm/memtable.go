@@ -72,8 +72,13 @@ func (mt *memTable) close() error {
 
 func (mt *memTable) set(e *utils.Entry) error {
 	// 先将数据写到 wal 文件，防止崩溃后数据丢失
-	if err := mt.wal.Write(e); err != nil {
+	seq, err := mt.wal.Write(e)
+	if err != nil {
 		return err
+	}
+	// TODO(qgw1230): 怎么避免同步，异步写入如何返回结果
+	if mt.wal.WriteDoneSeq() < seq {
+		mt.wal.Wait()
 	}
 	mt.sl.Add(e)
 	return nil

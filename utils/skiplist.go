@@ -242,6 +242,7 @@ func (sl *SkipList) randLevel() int {
 	return sl.maxLevel
 }
 
+// MemSize 返回跳表中节点数
 func (sl *SkipList) MemSize() int64 {
 	return sl.length
 }

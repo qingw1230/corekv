@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/qingw1230/corekv/utils"
@@ -16,24 +17,48 @@ import (
 // WalFile 预写日志文件
 type WalFile struct {
 	opt     *Options
-	rw      *sync.RWMutex
 	f       *MmapFile
 	buf     *bytes.Buffer
 	size    uint32 // 底层文件大小
 	writeAt uint32 // 写入位置
+
+	rw           *sync.RWMutex     // 用于保证写入 chan 与协程 seq 的一致性
+	entriesBuf   chan *utils.Entry // 用于批量写入 WAL
+	seq          uint32            // 数据写入 chan 后返回的序号
+	writeDoneSeq uint32            // 已经将数据写入 WAL 的序号
+	mu           *sync.Mutex
+	cond         *sync.Cond
+	// processNext  uint32
 }
 
 func OpenWalFile(opt *Options) *WalFile {
 	mf, err := OpenMmapFile(opt.FileName, os.O_CREATE|os.O_RDWR, opt.MaxSz)
 	wf := &WalFile{
-		opt: opt,
-		rw:  &sync.RWMutex{},
-		f:   mf,
-		buf: &bytes.Buffer{},
+		opt:          opt,
+		f:            mf,
+		buf:          &bytes.Buffer{},
+		writeAt:      0,
+		rw:           &sync.RWMutex{},
+		entriesBuf:   make(chan *utils.Entry, 512),
+		seq:          0,
+		writeDoneSeq: 0,
+		mu:           &sync.Mutex{},
 	}
 	wf.size = uint32(len(wf.f.Data))
+	wf.cond = sync.NewCond(wf.mu)
 	utils.Err(err)
+
+	go func() {
+		wf.batchWrite()
+	}()
+
 	return wf
+}
+
+func (wf *WalFile) Wait() {
+	wf.mu.Lock()
+	defer wf.mu.Unlock()
+	wf.cond.Wait()
 }
 
 // Close 关闭 wal 文件，并将其删除
@@ -43,6 +68,10 @@ func (wf *WalFile) Close() error {
 		return err
 	}
 	return os.Remove(fileName)
+}
+
+func (wf *WalFile) WriteDoneSeq() uint32 {
+	return wf.writeDoneSeq
 }
 
 func (w *WalFile) FID() uint64 {
@@ -57,15 +86,27 @@ func (w *WalFile) Size() uint32 {
 	return w.writeAt
 }
 
-func (wf *WalFile) Write(e *utils.Entry) error {
+func (wf *WalFile) Write(e *utils.Entry) (uint32, error) {
 	wf.rw.Lock()
 	defer wf.rw.Unlock()
-	len := utils.WalCodec(wf.buf, e)
-	// 先写入 buf，再写进 wal 文件，保证数据完整性
-	data := wf.buf.Bytes()
-	utils.Panic(wf.f.AppendBuffer(wf.writeAt, data))
-	wf.writeAt += uint32(len)
-	return nil
+
+	wf.entriesBuf <- e
+	// 必须加锁保护，不能使用原子指令，否则 channel 与 seq 可能出现一致性问题
+	wf.seq++
+	return wf.seq, nil
+}
+
+// batchWrite 只有打开 wal 文件时启动的协程可以访问
+func (wf *WalFile) batchWrite() {
+	for e := range wf.entriesBuf {
+		len := utils.WalCodec(wf.buf, e)
+		// 先写入 buf，再写进 wal 文件，保证数据完整性
+		data := wf.buf.Bytes()
+		utils.Panic(wf.f.AppendBuffer(wf.writeAt, data))
+		wf.writeAt += uint32(len)
+		atomic.AddUint32(&wf.writeDoneSeq, 1)
+		wf.cond.Broadcast()
+	}
 }
 
 // Iterator 迭代 wal 文件，对文件中每个 Entry 执行 fn 函数

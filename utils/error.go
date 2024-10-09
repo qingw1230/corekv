@@ -9,6 +9,8 @@ import (
 )
 
 var (
+	ErrChecksumMissmatch = errors.New("checksum mismatch")
+
 	ErrTruncate = errors.New("do truncate")
 	ErrStop     = errors.New("Stop")
 )

@@ -203,7 +203,6 @@ func (m *MmapFile) Truncate(maxSz int64) error {
 	if err := m.Fd.Truncate(maxSz); err != nil {
 		return fmt.Errorf("while truncate file: %s, error: %v", m.Fd.Name(), err)
 	}
-
 	var err error
 	m.Data, err = mmap.Mremap(m.Data, int(maxSz))
 	return err

@@ -3,6 +3,9 @@ package utils
 import (
 	"bytes"
 	"fmt"
+	"hash/crc32"
+
+	"github.com/pkg/errors"
 )
 
 func CompareKeys(key1, key2 []byte) int {
@@ -13,4 +16,14 @@ func CompareKeys(key1, key2 []byte) int {
 		return comp
 	}
 	return bytes.Compare(key1[len1-timestampLen:], key2[len2-timestampLen:])
+}
+
+// VerifyChecksum 验证 data 的校验和是否与 expected 相同
+func VerifyChecksum(data []byte, expected []byte) error {
+	actual := uint64(crc32.Checksum(data, CastagnoliCrcTable))
+	expectedU64 := BytesToU64(expected)
+	if actual != expectedU64 {
+		return errors.Wrapf(ErrChecksumMissmatch, "actual: %d, expected: %d", actual, expectedU64)
+	}
+	return nil
 }

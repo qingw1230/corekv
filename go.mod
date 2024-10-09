@@ -1,11 +1,14 @@
 module github.com/qingw1230/corekv
 
-go 1.18
+go 1.21
+
+toolchain go1.21.10
 
 require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/sys v0.25.0
+	google.golang.org/protobuf v1.35.1
 )
 
 require (

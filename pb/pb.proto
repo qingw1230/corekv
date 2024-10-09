@@ -1,0 +1,31 @@
+syntax = "proto3";
+package pb;
+
+option go_package = "/pb";
+
+message KV {
+    bytes key = 1;
+    bytes value = 2;
+    uint64 version = 3;
+    uint64 expires_at = 4;
+    bytes meta = 5;
+}
+
+message KVList {
+    repeated KV kvs = 1;
+}
+
+// TableIndex sst 文件的索引
+message TableIndex {
+    repeated BlockOffset offsets = 1;
+    uint64 maxVersion = 2;
+    uint32 keyCount = 3;
+    uint32 staleDataSize = 4;
+}
+
+// BlockOffset 组成 sst 文件的 block
+message BlockOffset {
+    bytes key = 1;      // 该 block 的第一个 key
+    uint32 offset = 2;  // 第一个 key 在 sst 的偏移量
+    uint32 len = 3;     // 该 block 的长度
+}

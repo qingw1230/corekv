@@ -2,6 +2,8 @@ package lsm
 
 import (
 	"errors"
+	"io"
+	"sort"
 	"unsafe"
 
 	"github.com/qingw1230/corekv/pb"
@@ -302,4 +304,132 @@ func (t *tableBuilder) calculateChecksum(data []byte) []byte {
 
 func (b *block) verifyChecksum() error {
 	return utils.VerifyChecksum(b.data, b.checksum)
+}
+
+type blockIterator struct {
+	block        *block   // 当前指向的 block
+	data         []byte   // block 的 KV 数据部分
+	entryOffsets []uint32 // block 内各 key 的偏移
+	idx          int      // key 在 entryOffsets 的下标
+	err          error
+	baseKey      []byte
+	key          []byte // 指向的 key
+	val          []byte
+
+	tableID uint64 // 当前 block 所属 sst 文件
+	blockID int    // 在所属 sst 文件 blockList 的下标
+
+	prevOverlap uint16 // 上一个 key 重叠部分长度
+
+	item utils.Item // 保存数据
+}
+
+// seek 在 block 中查找指定 key
+func (bi *blockIterator) seek(key []byte) {
+	bi.err = nil
+	startIdx := 0
+
+	// 利用二分查找找 f(idx) 为 true 的最小索引
+	// 即找第一个大于等于指定 key 的索引
+	foundEntryIdx := sort.Search(len(bi.entryOffsets), func(idx int) bool {
+		if idx < startIdx {
+			return false
+		}
+		bi.setIdx(idx)
+		return utils.CompareKeys(bi.key, key) >= 0
+	})
+	bi.setIdx(foundEntryIdx)
+}
+
+// setBlock 将 bi 指向指定 block
+func (bi *blockIterator) setBlock(b *block) {
+	bi.block = b
+	bi.data = b.data[:b.entryIndexStart]
+	bi.entryOffsets = b.entryOffsets
+	bi.idx = 0
+	bi.err = nil
+	bi.baseKey = bi.baseKey[:0]
+	bi.key = bi.key[:0]
+	bi.prevOverlap = 0
+}
+
+func (bi *blockIterator) seekToFirst() {
+	bi.setIdx(0)
+}
+
+func (bi *blockIterator) seekToLast() {
+	bi.setIdx(len(bi.entryOffsets) - 1)
+}
+
+// setIdx 将 bi 指向 block 内索引为 i 的 key
+func (bi *blockIterator) setIdx(i int) {
+	if i >= len(bi.entryOffsets) || i < 0 {
+		bi.err = io.EOF
+		return
+	}
+	bi.idx = i
+	bi.err = nil
+
+	// 设置 baseKey
+	if len(bi.baseKey) == 0 {
+		var baseHeader header
+		baseHeader.decode(bi.data)
+		bi.baseKey = bi.data[headerSize : headerSize+baseHeader.diff]
+	}
+
+	var endOffset int
+	if bi.idx+1 == len(bi.entryOffsets) {
+		endOffset = len(bi.data)
+	} else {
+		endOffset = int(bi.entryOffsets[bi.idx+1])
+	}
+	startOffset := int(bi.entryOffsets[i])
+
+	entryData := bi.data[startOffset:endOffset]
+	var h header
+	h.decode(entryData)
+	if h.overlap > bi.prevOverlap {
+		bi.key = append(bi.key[:bi.prevOverlap], bi.baseKey[bi.prevOverlap:h.overlap]...)
+	}
+	bi.prevOverlap = h.overlap
+	valueOff := headerSize + h.diff
+	diffKey := entryData[headerSize:valueOff]
+	// 用重叠部分和不同部分组成完整的 key
+	bi.key = append(bi.key[:h.overlap], diffKey...)
+
+	val := &utils.ValueStruct{}
+	val.DecodeValue(entryData[valueOff:])
+	bi.val = val.Value
+	e := &utils.Entry{
+		Key:       bi.key,
+		Value:     val.Value,
+		ExpiresAt: val.ExpiresAt,
+		Meta:      val.Meta,
+	}
+	bi.item = &Item{e: e}
+}
+
+func (bi *blockIterator) Error() error {
+	return bi.err
+}
+
+func (bi *blockIterator) Next() {
+	bi.setIdx(bi.idx + 1)
+}
+
+func (bi *blockIterator) Valid() bool {
+	return bi.err != io.EOF
+}
+
+func (bi *blockIterator) Rewind() bool {
+	bi.setIdx(0)
+	return true
+}
+
+func (bi *blockIterator) Item() utils.Item {
+	return bi.item
+}
+
+func (bi *blockIterator) Close() error {
+	return nil
 }

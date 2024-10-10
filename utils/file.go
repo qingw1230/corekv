@@ -27,3 +27,8 @@ func VerifyChecksum(data []byte, expected []byte) error {
 	}
 	return nil
 }
+
+// CalculateChecksum 计算 data 校验和
+func CalculateChecksum(data []byte) uint64 {
+	return uint64(crc32.Checksum(data, CastagnoliCrcTable))
+}

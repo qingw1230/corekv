@@ -70,6 +70,10 @@ func (wf *WalFile) Close() error {
 	return os.Remove(fileName)
 }
 
+func (wf *WalFile) Sync() {
+	wf.f.Sync()
+}
+
 func (wf *WalFile) WriteDoneSeq() uint32 {
 	return wf.writeDoneSeq
 }

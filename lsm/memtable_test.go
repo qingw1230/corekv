@@ -2,20 +2,12 @@ package lsm
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/qingw1230/corekv/utils"
 	"github.com/stretchr/testify/assert"
-)
-
-var (
-	opt = &Options{
-		WorkDir:      "../work_test",
-		MemTableSize: 2 * 1024,
-	}
 )
 
 func TestMemtable_Set(t *testing.T) {
@@ -94,12 +86,4 @@ func verifyCorrectness(memTable *memTable, m *sync.Map) bool {
 		return false
 	}
 	return true
-}
-
-func clearDir(opt *Options) {
-	_, err := os.Stat(opt.WorkDir)
-	if err == nil {
-		os.RemoveAll(opt.WorkDir)
-	}
-	os.Mkdir(opt.WorkDir, os.ModePerm)
 }

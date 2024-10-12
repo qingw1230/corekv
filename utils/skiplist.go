@@ -247,6 +247,25 @@ func (sl *SkipList) MemSize() int64 {
 	return sl.length
 }
 
+func (sl *SkipList) CompareSkipList(other *SkipList) bool {
+	if sl.length != other.length {
+		return false
+	}
+
+	si1, si2 := sl.NewIterator(), other.NewIterator()
+	for si1.Valid() && si2.Valid() {
+		if !bytes.Equal(si1.Item().Entry().Key, si2.Item().Entry().Key) {
+			return false
+		}
+		if !bytes.Equal(si1.Item().Entry().Value, si2.Item().Entry().Value) {
+			return false
+		}
+		si1.Next()
+		si2.Next()
+	}
+	return true
+}
+
 func (sl *SkipList) PrintSkipList() {
 	for si := sl.NewIterator(); si.Valid(); si.Next() {
 		fmt.Print(string(si.Item().Entry().Key))

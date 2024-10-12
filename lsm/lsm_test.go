@@ -11,11 +11,23 @@ import (
 var (
 	opt = &Options{
 		WorkDir:      "../work_test",
-		MemTableSize: 2 * 1024,
+		MemTableSize: 2 << 10,
+		SSTableMaxSz: 2 << 10,
 	}
 )
 
-func TestLsm_Recovery(t *testing.T) {
+func TestGenerateSST(t *testing.T) {
+	clearDir(opt)
+	lsm := buildLSM(opt)
+
+	cnt := 100
+	entries := utils.GenerateEntries(cnt)
+	for _, e := range entries {
+		lsm.Set(e)
+	}
+}
+
+func TestLSM_Recovery(t *testing.T) {
 	clearDir(opt)
 	lsm1 := buildLSM(opt)
 

@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"hash/crc32"
+	"path"
+	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -16,6 +20,26 @@ func CompareKeys(key1, key2 []byte) int {
 		return comp
 	}
 	return bytes.Compare(key1[len1-timestampLen:], key2[len2-timestampLen:])
+}
+
+// FID 获取 sst 文件 id
+func FID(name string) uint64 {
+	name = path.Base(name)
+	if !strings.HasSuffix(name, ".sst") {
+		return 0
+	}
+	name = strings.TrimSuffix(name, ".sst")
+	id, err := strconv.Atoi(name)
+	if err != nil {
+		Err(err)
+		return 0
+	}
+	return uint64(id)
+}
+
+// FileNameSSTable 根据 dir 和 id 生成 sst 文件名
+func FileNameSSTable(dir string, id uint64) string {
+	return filepath.Join(dir, fmt.Sprintf("%05d.sst", id))
 }
 
 // VerifyChecksum 验证 data 的校验和是否与 expected 相同

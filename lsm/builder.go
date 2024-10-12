@@ -2,10 +2,13 @@ package lsm
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"sort"
 	"unsafe"
 
+	"github.com/qingw1230/corekv/file"
 	"github.com/qingw1230/corekv/pb"
 	"github.com/qingw1230/corekv/utils"
 	"google.golang.org/protobuf/proto"
@@ -79,6 +82,31 @@ func newTableBuilder(opt *Options) *tableBuilder {
 		opt:     opt,
 		sstSize: opt.SSTableMaxSz,
 	}
+}
+
+// flush 将 builder 数据写入 sst 文件
+func (tb *tableBuilder) flush(lm *levelManager, name string) (*table, error) {
+	bd := tb.done()
+	t := &table{
+		lm:  lm,
+		fid: utils.FID(name),
+	}
+	t.sst = file.OpenSSTable(&file.Options{
+		FileName: name,
+		Dir:      lm.opt.WorkDir,
+		Flag:     os.O_CREATE | os.O_RDWR,
+		MaxSz:    int(bd.size),
+	})
+	buf := make([]byte, bd.size)
+	// TODO(qingw1230): 有多次拷贝，需要优化
+	written := bd.Copy(buf)
+	utils.CondPanic(written != len(buf), fmt.Errorf("tableBuilder.flush writen != len(buf)"))
+	dst, err := t.sst.Bytes(0, bd.size)
+	if err != nil {
+		return nil, err
+	}
+	copy(dst, buf)
+	return t, nil
 }
 
 func (t *tableBuilder) empty() bool {

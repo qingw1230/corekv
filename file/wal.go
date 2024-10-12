@@ -86,6 +86,7 @@ func (w *WalFile) Name() string {
 	return w.opt.FileName
 }
 
+// Size 预写日志大小
 func (w *WalFile) Size() uint32 {
 	return w.writeAt
 }

@@ -9,6 +9,7 @@ import (
 )
 
 var (
+	ErrEmptyKey          = errors.New("key cannot be empty")
 	ErrChecksumMissmatch = errors.New("checksum mismatch")
 
 	ErrTruncate = errors.New("do truncate")

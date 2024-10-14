@@ -449,13 +449,13 @@ func (bi *blockIterator) Valid() bool {
 	return bi.err != io.EOF
 }
 
+func (bi *blockIterator) Item() utils.Item {
+	return bi.item
+}
+
 func (bi *blockIterator) Rewind() bool {
 	bi.setIdx(0)
 	return true
-}
-
-func (bi *blockIterator) Item() utils.Item {
-	return bi.item
 }
 
 func (bi *blockIterator) Close() error {

@@ -3,9 +3,9 @@ package utils
 type Iterator interface {
 	Next()
 	Valid() bool
+	Seek(key []byte)
 	Item() Item
 	Rewind()
-	Seek(key []byte)
 	Close() error
 }
 

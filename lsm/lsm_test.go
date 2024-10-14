@@ -27,6 +27,22 @@ func TestGenerateSST(t *testing.T) {
 	}
 }
 
+func TestSSTSearch(t *testing.T) {
+	clearDir(opt)
+	lsm := buildLSM(opt)
+
+	cnt := 1000
+	entries := utils.GenerateEntries(cnt)
+	for _, e := range entries {
+		lsm.Set(e)
+	}
+
+	for _, entry := range entries {
+		e, _ := lsm.Get(entry.Key)
+		assert.Equal(t, entry.Value, e.Value)
+	}
+}
+
 func TestLSM_Recovery(t *testing.T) {
 	clearDir(opt)
 	lsm1 := buildLSM(opt)

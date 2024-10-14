@@ -8,6 +8,8 @@ type Options struct {
 	SSTableMaxSz       int64
 	BlockSize          int // sst 文件中每个块的大小
 	BloomFalsePositive float64
+
+	MaxLevelNum int
 }
 
 type LSM struct {
@@ -72,6 +74,24 @@ func (lsm *LSM) Set(e *utils.Entry) (err error) {
 		lsm.immutables = make([]*memTable, 0)
 	}
 	return err
+}
+
+func (lsm *LSM) Get(key []byte) (e *utils.Entry, err error) {
+	if len(key) == 0 {
+		return nil, utils.ErrEmptyKey
+	}
+	lsm.closer.Add(1)
+	defer lsm.closer.Done()
+
+	if e, err = lsm.memTable.Get(key); e != nil && e.Value != nil {
+		return
+	}
+	for i := len(lsm.immutables) - 1; i >= 0; i-- {
+		if e, err = lsm.immutables[i].Get(key); e != nil && e.Value != nil {
+			return e, err
+		}
+	}
+	return lsm.lm.Get(key)
 }
 
 // Rotate 将 memTable 变为不可变内存表，创建新的 memTable

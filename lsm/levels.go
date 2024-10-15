@@ -3,14 +3,16 @@ package lsm
 import (
 	"sync"
 
+	"github.com/qingw1230/corekv/file"
 	"github.com/qingw1230/corekv/utils"
 )
 
 type levelManager struct {
-	lsm    *LSM // 所属 LSM
-	opt    *Options
-	levels []*levelHandler
-	maxFID uint64 // 用于生成文件 ID
+	lsm          *LSM // 所属 LSM
+	opt          *Options
+	levels       []*levelHandler    // 各层的管理句柄
+	manifestFile *file.ManifestFile // 保存 sst 文件的层级关系
+	maxFID       uint64             // 用于生成文件 ID
 }
 
 func (lsm *LSM) initLevelManager(opt *Options) *levelManager {
@@ -24,10 +26,15 @@ func (lsm *LSM) initLevelManager(opt *Options) *levelManager {
 		rw:       sync.RWMutex{},
 		levelNum: 0,
 	}
+	err := lm.loadManifest()
+	utils.Panic(err)
 	return lm
 }
 
 func (lm *levelManager) close() error {
+	if err := lm.manifestFile.Close(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -58,8 +65,22 @@ func (lm *levelManager) flush(immutable *memTable) error {
 	}
 
 	t := openTable(lm, sstName, builder)
+
+	err := lm.manifestFile.AddTableMeta(0, &file.TableMeta{
+		ID:       nextID,
+		Checksum: []byte{'m', 'o', 'c', 'k'},
+	})
+	utils.Panic(err)
+
 	lm.levels[0].add(t)
 	return nil
+}
+
+func (lm *levelManager) loadManifest() (err error) {
+	lm.manifestFile, err = file.OpenManifestFile(&file.Options{
+		Dir: lm.opt.WorkDir,
+	})
+	return
 }
 
 type levelHandler struct {

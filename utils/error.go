@@ -9,12 +9,14 @@ import (
 )
 
 var (
-	ErrKeyNotFount       = errors.New("key not found")
-	ErrEmptyKey          = errors.New("key cannot be empty")
+	ErrBadChecksum       = errors.New("bad checksum ")
+	ErrBadMagic          = errors.New("bad magic")
 	ErrChecksumMissmatch = errors.New("checksum mismatch")
+	ErrEmptyKey          = errors.New("key cannot be empty")
+	ErrKeyNotFount       = errors.New("key not found")
 
-	ErrTruncate = errors.New("do truncate")
 	ErrStop     = errors.New("Stop")
+	ErrTruncate = errors.New("do truncate")
 )
 
 // Panic err != nil 时触发 panic

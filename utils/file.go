@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"hash/crc32"
+	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -40,6 +41,23 @@ func FID(name string) uint64 {
 // FileNameSSTable 根据 dir 和 id 生成 sst 文件名
 func FileNameSSTable(dir string, id uint64) string {
 	return filepath.Join(dir, fmt.Sprintf("%05d.sst", id))
+}
+
+func openDir(path string) (*os.File, error) {
+	return os.Open(path)
+}
+
+func SyncDir(dir string) error {
+	f, err := openDir(dir)
+	if err != nil {
+		return errors.Wrapf(err, "while opening directory: %s", dir)
+	}
+	err = f.Sync()
+	closeErr := f.Close()
+	if err != nil {
+		return errors.Wrapf(err, "while syncing directory: %s", dir)
+	}
+	return errors.Wrapf(closeErr, "while closing directory: %s", dir)
 }
 
 // VerifyChecksum 验证 data 的校验和是否与 expected 相同

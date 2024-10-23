@@ -125,6 +125,10 @@ func (t *tableBuilder) finish() []byte {
 func (t *tableBuilder) Close() {
 }
 
+func (tb *tableBuilder) AddKey(e *utils.Entry) {
+	tb.add(e, false)
+}
+
 // add 将一个 entry 添加到 block 中
 func (tb *tableBuilder) add(e *utils.Entry, _ bool) {
 	key := e.Key

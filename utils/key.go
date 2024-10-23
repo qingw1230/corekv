@@ -27,3 +27,14 @@ func SameKey(src, dst []byte) bool {
 	}
 	return bytes.Equal(ParseKey(src), ParseKey(dst))
 }
+
+func KeyWithTs(key []byte, ts uint64) []byte {
+	out := make([]byte, len(key)+timestampLen)
+	copy(out, key)
+	binary.BigEndian.PutUint64(out[len(key):], ts)
+	return out
+}
+
+func SafeCopy(a, src []byte) []byte {
+	return append(a[:0], src...)
+}

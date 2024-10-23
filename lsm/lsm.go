@@ -3,13 +3,17 @@ package lsm
 import "github.com/qingw1230/corekv/utils"
 
 type Options struct {
-	WorkDir            string
+	BloomFalsePositive float64
+	BlockSize          int // sst 文件中每个块的大小
 	MemTableSize       int64
 	SSTableMaxSz       int64
-	BlockSize          int // sst 文件中每个块的大小
-	BloomFalsePositive float64
+	WorkDir            string
 
-	MaxLevelNum int
+	BaseLevelSize       int64
+	LevelSizeMultiplier int
+	MaxLevelNum         int
+	NumLeverZeroTables  int // L0 层 sst 文件数量最大值，默认 15
+	TableSizeMultiplier int
 }
 
 type LSM struct {

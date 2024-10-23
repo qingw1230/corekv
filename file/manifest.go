@@ -112,6 +112,10 @@ func (mf *ManifestFile) AddTableMeta(levelNum int, t *TableMeta) error {
 	return err
 }
 
+func (mf *ManifestFile) AddChanges(changesParam []*pb.ManifestChange) error {
+	return mf.addChanges(changesParam)
+}
+
 func (mf *ManifestFile) addChanges(changesParam []*pb.ManifestChange) error {
 	changes := pb.ManifestChangeSet{
 		Changes: changesParam,

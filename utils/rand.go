@@ -1,8 +1,8 @@
 package utils
 
 import (
+	"encoding/binary"
 	"math/rand"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -13,7 +13,7 @@ var (
 )
 
 const (
-	timestampLen = 13
+	timestampLen = 8
 )
 
 // BuildEntry 构建一个随机的 Entry 对象
@@ -56,22 +56,19 @@ func RandStringRandomLength(len int, appendTimestamp bool) string {
 	return RandStringWithLength(len, appendTimestamp)
 }
 
-// RandStringWithLength 生成指定长度的字符串，timestamp 为 13 位毫位秒级时间戳
+// RandStringWithLength 生成指定长度的字符串，timestamp 为纳秒级时间戳
 func RandStringWithLength(len int, appendTimestamp bool) string {
-	bytes := make([]byte, len)
+	bytes := make([]byte, len+timestampLen)
 	for i := 0; i < len; i++ {
 		b := Intn(26) + 65
 		bytes[i] = byte(b)
 	}
 
-	str := string(bytes)
-
 	if appendTimestamp {
-		now := time.Now().UnixMilli()
-		timestampStr := strconv.FormatInt(now, 10)
-		str += timestampStr
+		now := time.Now().UnixNano()
+		binary.BigEndian.PutUint64(bytes[len:], uint64(now))
 	}
-	return str
+	return string(bytes)
 }
 
 func Int63n(n int64) int64 {

@@ -128,6 +128,11 @@ func (t *table) Size() int64 {
 	return int64(t.sst.Size())
 }
 
+// StaleDataSize 返回该 sst 文件中过期数据的大小
+func (t *table) StaleDataSize() uint32 {
+	return t.sst.Indexs().StaleDataSize
+}
+
 func (t *table) GetCreatedAt() *time.Time {
 	return t.sst.GetCreatedAt()
 }
@@ -150,6 +155,7 @@ func (t *table) DecrRef() error {
 	return nil
 }
 
+// decrRefs 减少一组 sst 文件的计数，当计数为 0 时删除文件
 func decrRefs(tables []*table) error {
 	for _, t := range tables {
 		if err := t.DecrRef(); err != nil {

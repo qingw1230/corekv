@@ -3,6 +3,7 @@ package lsm
 import (
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/qingw1230/corekv/file"
 	"github.com/qingw1230/corekv/utils"
@@ -19,16 +20,13 @@ type levelManager struct {
 
 func (lsm *LSM) initLevelManager(opt *Options) *levelManager {
 	lm := &levelManager{
-		lsm:    lsm,
-		opt:    opt,
-		levels: make([]*levelHandler, 1),
-	}
-	lm.levels[0] = &levelHandler{
-		lm:       lm,
-		levelNum: 0,
+		lsm:          lsm,
+		opt:          opt,
+		compactState: lsm.newCompactStatus(),
 	}
 	err := lm.loadManifest()
 	utils.Panic(err)
+	lm.build()
 	return lm
 }
 
@@ -84,6 +82,40 @@ func (lm *levelManager) loadManifest() (err error) {
 	return
 }
 
+// build 用 MANIFEST 文件初始化各层的管理句柄
+func (lm *levelManager) build() error {
+	// 构建各层的管理句柄
+	lm.levels = make([]*levelHandler, 0, lm.opt.MaxLevelNum)
+	for i := 0; i < lm.opt.MaxLevelNum; i++ {
+		lm.levels = append(lm.levels, &levelHandler{
+			lm:       lm,
+			levelNum: i,
+			tables:   make([]*table, 0),
+		})
+	}
+
+	manifest := lm.manifestFile.GetManifest()
+	if err := lm.manifestFile.RevertToManifest(utils.LoadIDMap(lm.opt.WorkDir)); err != nil {
+		return err
+	}
+
+	var maxFID uint64
+	for id, tableInfo := range manifest.Tables {
+		filename := utils.FileNameSSTable(lm.opt.WorkDir, id)
+		if id > maxFID {
+			maxFID = id
+		}
+		t := openTable(lm, filename, nil)
+		lm.levels[tableInfo.Level].add(t)
+		lm.levels[tableInfo.Level].addSize(t)
+	}
+	for i := 0; i < lm.opt.MaxLevelNum; i++ {
+		lm.levels[i].Sort()
+	}
+	atomic.AddUint64(&lm.maxFID, maxFID)
+	return nil
+}
+
 // iterators 为 levelManager 管理的 sst 文件创建迭代器
 func (lm *levelManager) iterators() []utils.Iterator {
 	iters := make([]utils.Iterator, 0, len(lm.levels))
@@ -116,6 +148,21 @@ func (lh *levelHandler) Get(key []byte) (*utils.Entry, error) {
 		return lh.serachL0SST(key)
 	}
 	return nil, nil
+}
+
+// Sort 为 SST 文件排序，L0 层以 fid 排升序，其他层以最小 key 排升序
+func (lh *levelHandler) Sort() {
+	lh.Lock()
+	defer lh.Unlock()
+	if lh.levelNum == 0 {
+		sort.Slice(lh.tables, func(i, j int) bool {
+			return lh.tables[i].fid < lh.tables[j].fid
+		})
+	} else {
+		sort.Slice(lh.tables, func(i, j int) bool {
+			return utils.CompareKeys(lh.tables[i].sst.MinKey(), lh.tables[j].sst.MinKey()) < 0
+		})
+	}
 }
 
 func (lh *levelHandler) serachL0SST(key []byte) (*utils.Entry, error) {

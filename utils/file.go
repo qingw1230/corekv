@@ -60,6 +60,23 @@ func SyncDir(dir string) error {
 	return errors.Wrapf(closeErr, "while closing directory: %s", dir)
 }
 
+// LoadIDMap 获取指定目录下所有的 sst 文件 ID
+func LoadIDMap(dir string) map[uint64]struct{} {
+	fileInfos, err := os.ReadDir(dir)
+	Err(err)
+	idMap := make(map[uint64]struct{})
+	for _, info := range fileInfos {
+		if info.IsDir() {
+			continue
+		}
+		fileID := FID(info.Name())
+		if fileID != 0 {
+			idMap[fileID] = struct{}{}
+		}
+	}
+	return idMap
+}
+
 // VerifyChecksum 验证 data 的校验和是否与 expected 相同
 func VerifyChecksum(data []byte, expected []byte) error {
 	actual := uint64(crc32.Checksum(data, CastagnoliCrcTable))

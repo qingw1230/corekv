@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/pkg/errors"
 	"github.com/qingw1230/corekv/pb"
 	"github.com/qingw1230/corekv/utils"
 	"google.golang.org/protobuf/proto"
@@ -105,11 +106,36 @@ func (mf *ManifestFile) Close() error {
 	return nil
 }
 
+func (mf *ManifestFile) GetManifest() *Manifest {
+	return mf.manifest
+}
+
 func (mf *ManifestFile) AddTableMeta(levelNum int, t *TableMeta) error {
 	err := mf.addChanges([]*pb.ManifestChange{
 		newCreateChange(t.ID, levelNum, t.Checksum),
 	})
 	return err
+}
+
+// RevertToManifest 确保 MANIFEST 与实际 SST 文件一致
+func (mf *ManifestFile) RevertToManifest(idMap map[uint64]struct{}) error {
+	// MANIFEST 文件中有记录，实际没有该文件时报错
+	for id := range mf.manifest.Tables {
+		if _, ok := idMap[id]; !ok {
+			return fmt.Errorf("file does not exist for table %d", id)
+		}
+	}
+
+	for id := range idMap {
+		if _, ok := mf.manifest.Tables[id]; !ok {
+			utils.Err(fmt.Errorf("table file %d not referenced in MANIFEST", id))
+			filename := utils.FileNameSSTable(mf.opt.Dir, id)
+			if err := os.Remove(filename); err != nil {
+				return errors.Wrapf(err, "while removing table %d", id)
+			}
+		}
+	}
+	return nil
 }
 
 func (mf *ManifestFile) AddChanges(changesParam []*pb.ManifestChange) error {
